@@ -1,5 +1,11 @@
 import { useState, useRef, useEffect } from "react";
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
+import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm";
+
+// ── Supabase ──────────────────────────────────────────────────────
+const SUPABASE_URL = "https://bhykyksawrhmvlzacnjb.supabase.co";
+const SUPABASE_KEY = "sb_publishable_6-TPaxN2bgd8rNX2rcIzpg_CWdcqkjY";
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // ── Constants ─────────────────────────────────────────────────────
 const MOCK_SAVINGS = [
@@ -596,23 +602,52 @@ function OnboardingScreen({onDone,onSetRisk}) {
 function LoginScreen({onLogin}) {
   const [tab,setTab]=useState("login");
   const [f,setF]=useState({name:"",email:"",password:""});
+  const [loading,setLoading]=useState(false);
+  const [error,setError]=useState(null);
   const set=(k,v)=>setF(p=>({...p,[k]:v}));
-  const submit=()=>{ if(!f.email||!f.password) return; onLogin({name:f.name||f.email.split("@")[0],email:f.email}); };
+
+  const submit=async()=>{
+    if(!f.email||!f.password) return;
+    setLoading(true); setError(null);
+    try {
+      if(tab==="signup") {
+        const {data,error}=await supabase.auth.signUp({
+          email:f.email, password:f.password,
+          options:{data:{full_name:f.name||f.email.split("@")[0]}}
+        });
+        if(error) throw error;
+        onLogin({name:f.name||f.email.split("@")[0],email:f.email,id:data.user?.id});
+      } else {
+        const {data,error}=await supabase.auth.signInWithPassword({email:f.email,password:f.password});
+        if(error) throw error;
+        const name=data.user?.user_metadata?.full_name||f.email.split("@")[0];
+        onLogin({name,email:f.email,id:data.user?.id});
+      }
+    } catch(e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="auth-screen">
       <div className="auth-logo">Shop, Save, <span>Invest</span></div>
       <div className="auth-tagline">Shop smarter. Save automatically. Invest the difference.</div>
       <div className="auth-card">
         <div className="auth-tabs">
-          <div className={`auth-tab${tab==="login"?" active":""}`} onClick={()=>setTab("login")}>Sign In</div>
-          <div className={`auth-tab${tab==="signup"?" active":""}`} onClick={()=>setTab("signup")}>Create Account</div>
+          <div className={`auth-tab${tab==="login"?" active":""}`} onClick={()=>{setTab("login");setError(null);}}>Sign In</div>
+          <div className={`auth-tab${tab==="signup"?" active":""}`} onClick={()=>{setTab("signup");setError(null);}}>Create Account</div>
         </div>
         {tab==="signup"&&<div className="auth-field"><label>Full Name</label><input placeholder="Jane Smith" value={f.name} onChange={e=>set("name",e.target.value)}/></div>}
         <div className="auth-field"><label>Email</label><input type="email" placeholder="you@email.com" value={f.email} onChange={e=>set("email",e.target.value)}/></div>
         <div className="auth-field"><label>Password</label><input type="password" placeholder="••••••••" value={f.password} onChange={e=>set("password",e.target.value)}/></div>
-        <button className="auth-btn" onClick={submit}>{tab==="login"?"Sign In →":"Create Account →"}</button>
-        <div className="auth-hint">{tab==="login"?<>No account? <span onClick={()=>setTab("signup")}>Sign up free</span></>:<>Already have one? <span onClick={()=>setTab("login")}>Sign in</span></>}</div>
-        <div style={{marginTop:16,textAlign:"center"}}><button style={{background:"none",border:"1px solid #e8e4dc",borderRadius:10,padding:"10px 20px",fontSize:13,color:"#888",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}} onClick={()=>onLogin({name:"Demo User",email:"demo@shopSaveInvest.app"})}>👀 Try Demo</button></div>
+        {error&&<div style={{background:"#fce4ec",border:"1px solid #f48fb1",borderRadius:10,padding:"10px 14px",fontSize:12,color:"#880e4f",marginBottom:12}}>{error}</div>}
+        <button className="auth-btn" onClick={submit} disabled={loading}>
+          {loading?<><span className="spinner" style={{borderColor:"rgba(26,26,46,0.2)",borderTopColor:"#1a1a2e",width:16,height:16}}/>Processing…</>:tab==="login"?"Sign In →":"Create Account →"}
+        </button>
+        <div className="auth-hint">{tab==="login"?<>No account? <span onClick={()=>{setTab("signup");setError(null);}}>Sign up free</span></>:<>Already have one? <span onClick={()=>{setTab("login");setError(null);}}>Sign in</span></>}</div>
+        <div style={{marginTop:16,textAlign:"center"}}><button style={{background:"none",border:"1px solid #e8e4dc",borderRadius:10,padding:"10px 20px",fontSize:13,color:"#888",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}} onClick={()=>onLogin({name:"Demo User",email:"demo@shopsaveinvest.app"})}>👀 Try Demo</button></div>
       </div>
     </div>
   );
@@ -1174,13 +1209,16 @@ function SettingsScreen({user,onLogout,riskId,onSetRisk}) {
   );
 }
 
-function HomeScreen({user,savings,setSavings,invested,setInvested,taxRate,stateCode}) {
+function HomeScreen({user,savings,setSavings,addSaving,handleInvestAll,invested,setInvested,taxRate,stateCode}) {
   const [modal,setModal]=useState(null);const [toast,setToast]=useState(null);const [investing,setInvesting]=useState(false);
   const showToast=msg=>{setToast(msg);setTimeout(()=>setToast(null),3000);};
-  const addSaving=entry=>{setSavings(s=>[{...entry,id:Date.now(),date:new Date().toISOString().split("T")[0],invested:false},...s]);showToast(`✓ $${entry.saved.toFixed(2)} saved from ${entry.store}!`);};
+  const handleAddSaving=async entry=>{
+    await addSaving(entry);
+    showToast(`✓ $${entry.saved.toFixed(2)} saved from ${entry.store}!`);
+  };
   const uninvested=savings.filter(s=>!s.invested).reduce((a,s)=>a+s.saved,0);
-  const handleInvest=()=>{ if(uninvested<=0) return; setInvesting(true); setTimeout(()=>{setInvested(v=>v+uninvested);setSavings(s=>s.map(x=>({...x,invested:true})));setInvesting(false);showToast(`🚀 $${uninvested.toFixed(2)} invested!`);},1800); };
-  const [openDrop,setOpenDrop]=useState(null); // "shopping" | "saleTax" | "returns" | null
+  const handleInvest=()=>{ if(uninvested<=0) return; setInvesting(true); setTimeout(async()=>{await handleInvestAll(uninvested);setInvesting(false);showToast(`🚀 $${uninvested.toFixed(2)} invested!`);},1800); };
+  const [openDrop,setOpenDrop]=useState(null);
   const toggleDrop=key=>setOpenDrop(o=>o===key?null:key);
   return (
     <>
@@ -1226,13 +1264,13 @@ function HomeScreen({user,savings,setSavings,invested,setInvested,taxRate,stateC
           {savings.map(item=>{ const tc=TYPE_COLORS[item.type]||TYPE_COLORS.manual; return <div className="savings-item" key={item.id}><div className="savings-icon-wrap">{storeIcon(item.store)}</div><div className="savings-info"><div className="savings-store">{item.store}</div><div className="savings-name">{item.item}</div></div><div className="savings-right"><div className="savings-amount">+${item.saved.toFixed(2)}</div><div><span className="badge" style={{background:tc.bg,color:tc.text}}>{tc.label}</span></div>{item.invested?<div className="invested-tag">✓ Invested</div>:<div style={{fontSize:10,color:"#bbb",marginTop:3}}>{fmt(item.date)}</div>}</div></div>; })}
         </div>
       </div>
-      {modal==="manual"&&<ManualModal onClose={()=>setModal(null)} onSave={addSaving} taxRate={taxRate} stateCode={stateCode}/>}
-      {modal==="scan"&&<ScanModal onClose={()=>setModal(null)} onSave={addSaving}/>}
-      {modal==="email"&&<EmailModal onClose={()=>setModal(null)} onSave={addSaving}/>}
-      {modal==="tax"&&<TaxModal onClose={()=>setModal(null)} onSave={addSaving} taxRate={taxRate} stateCode={stateCode}/>}
-      {modal==="return"&&<ReturnModal onClose={()=>setModal(null)} onSave={addSaving}/>}
-      {modal==="returnScan"&&<ReturnScanModal onClose={()=>setModal(null)} onSave={addSaving}/>}
-      {modal==="returnEmail"&&<ReturnEmailModal onClose={()=>setModal(null)} onSave={addSaving}/>}
+      {modal==="manual"&&<ManualModal onClose={()=>setModal(null)} onSave={handleAddSaving} taxRate={taxRate} stateCode={stateCode}/>}
+      {modal==="scan"&&<ScanModal onClose={()=>setModal(null)} onSave={handleAddSaving}/>}
+      {modal==="email"&&<EmailModal onClose={()=>setModal(null)} onSave={handleAddSaving}/>}
+      {modal==="tax"&&<TaxModal onClose={()=>setModal(null)} onSave={handleAddSaving} taxRate={taxRate} stateCode={stateCode}/>}
+      {modal==="return"&&<ReturnModal onClose={()=>setModal(null)} onSave={handleAddSaving}/>}
+      {modal==="returnScan"&&<ReturnScanModal onClose={()=>setModal(null)} onSave={handleAddSaving}/>}
+      {modal==="returnEmail"&&<ReturnEmailModal onClose={()=>setModal(null)} onSave={handleAddSaving}/>}
       {toast&&<div className="toast">{toast}</div>}
     </>
   );
@@ -1243,12 +1281,82 @@ export default function App() {
   const [screen,setScreen]=useState("login");
   const [tab,setTab]=useState("home");
   const [user,setUser]=useState(null);
-  const [savings,setSavings]=useState(MOCK_SAVINGS);
-  const [invested,setInvested]=useState(149.73);
+  const [savings,setSavings]=useState([]);
+  const [invested,setInvested]=useState(0);
   const [taxRate,setTaxRate]=useState(0.07);
   const [stateCode,setStateCode]=useState(null);
   const [riskId,setRiskId]=useState("medium");
+  const [loadingData,setLoadingData]=useState(false);
 
+  // Load user savings from Supabase
+  const loadUserData=async(userId)=>{
+    setLoadingData(true);
+    try {
+      const {data,error}=await supabase
+        .from("savings")
+        .select("*")
+        .eq("user_id",userId)
+        .order("created_at",{ascending:false});
+      if(!error&&data) {
+        setSavings(data.map(s=>({
+          id:s.id, store:s.store, item:s.item,
+          type:s.type, saved:s.saved,
+          date:s.date, invested:s.invested
+        })));
+        const totalInvested=data.filter(s=>s.invested).reduce((a,s)=>a+s.saved,0);
+        setInvested(totalInvested);
+      }
+      // Load risk profile
+      const {data:prefs}=await supabase
+        .from("user_prefs")
+        .select("risk_id")
+        .eq("user_id",userId)
+        .single();
+      if(prefs?.risk_id) setRiskId(prefs.risk_id);
+    } catch(e) {
+      console.error("Error loading data:",e);
+    } finally {
+      setLoadingData(false);
+    }
+  };
+
+  // Save a new saving entry to Supabase
+  const addSavingToDb=async(entry,userId)=>{
+    const {data,error}=await supabase.from("savings").insert([{
+      user_id:userId, store:entry.store, item:entry.item,
+      type:entry.type, saved:entry.saved,
+      date:new Date().toISOString().split("T")[0], invested:false
+    }]).select().single();
+    if(!error&&data) return data;
+    return null;
+  };
+
+  // Mark savings as invested in Supabase
+  const markInvestedInDb=async(userId)=>{
+    await supabase.from("savings")
+      .update({invested:true})
+      .eq("user_id",userId)
+      .eq("invested",false);
+  };
+
+  // Check for existing Supabase session on load
+  useEffect(()=>{
+    supabase.auth.getSession().then(({data:{session}})=>{
+      if(session?.user){
+        const name=session.user.user_metadata?.full_name||session.user.email.split("@")[0];
+        const u={name,email:session.user.email,id:session.user.id};
+        setUser(u);
+        loadUserData(session.user.id);
+        setScreen("app");
+      }
+    });
+    const {data:{subscription}}=supabase.auth.onAuthStateChange((_event,session)=>{
+      if(!session){ setUser(null); setSavings([]); setInvested(0); setScreen("login"); setTab("home"); }
+    });
+    return ()=>subscription.unsubscribe();
+  },[]);
+
+  // GPS tax rate detection
   useEffect(()=>{
     if(!navigator.geolocation) return;
     navigator.geolocation.getCurrentPosition(async pos=>{
@@ -1257,17 +1365,44 @@ export default function App() {
     },()=>{},{timeout:6000});
   },[]);
 
-  if(screen==="login") return <><style>{S}</style><div className="app"><LoginScreen onLogin={u=>{setUser(u);setScreen("onboarding");}}/></div></>;
+  const handleLogout=async()=>{
+    await supabase.auth.signOut();
+    setUser(null); setSavings([]); setInvested(0); setScreen("login"); setTab("home");
+  };
+
+  // Wrap addSaving to also persist to Supabase
+  const addSaving=async(entry)=>{
+    if(user?.id){
+      const saved=await addSavingToDb(entry,user.id);
+      if(saved){
+        setSavings(s=>[{...saved},...s]);
+        return;
+      }
+    }
+    // Fallback for demo user
+    setSavings(s=>[{...entry,id:Date.now(),date:new Date().toISOString().split("T")[0],invested:false},...s]);
+  };
+
+  // Wrap invest to also persist to Supabase
+  const handleInvestAll=async(uninvested)=>{
+    if(user?.id) await markInvestedInDb(user.id);
+    setInvested(v=>v+uninvested);
+    setSavings(s=>s.map(x=>({...x,invested:true})));
+  };
+
+  if(screen==="login") return <><style>{S}</style><div className="app"><LoginScreen onLogin={u=>{setUser(u);loadUserData(u.id);setScreen("onboarding");}}/></div></>;
   if(screen==="onboarding") return <><style>{S}</style><div className="app"><OnboardingScreen onDone={()=>setScreen("app")} onSetRisk={setRiskId}/></div></>;
+
+  if(loadingData) return <><style>{S}</style><div className="app" style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",flexDirection:"column",gap:16}}><div className="spinner" style={{width:40,height:40,borderWidth:4}}/><div style={{fontSize:14,color:"#888",fontFamily:"'DM Sans',sans-serif"}}>Loading your account…</div></div></>;
 
   return (
     <>
       <style>{S}</style>
       <div className="app">
-        {tab==="home"&&<HomeScreen user={user} savings={savings} setSavings={setSavings} invested={invested} setInvested={setInvested} taxRate={taxRate} stateCode={stateCode}/>}
+        {tab==="home"&&<HomeScreen user={user} savings={savings} setSavings={setSavings} addSaving={addSaving} handleInvestAll={handleInvestAll} invested={invested} setInvested={setInvested} taxRate={taxRate} stateCode={stateCode}/>}
         {tab==="portfolio"&&<PortfolioScreen savings={savings} invested={invested}/>}
         {tab==="invest"&&<InvestScreen invested={invested} riskId={riskId}/>}
-        {tab==="settings"&&<SettingsScreen user={user} onLogout={()=>{setUser(null);setScreen("login");setTab("home");}} riskId={riskId} onSetRisk={setRiskId}/>}
+        {tab==="settings"&&<SettingsScreen user={user} onLogout={handleLogout} riskId={riskId} onSetRisk={setRiskId}/>}
         <div className="bottom-nav">
           <div className={`nav-item${tab==="home"?" active":""}`} onClick={()=>setTab("home")}><span className="nav-icon">🏠</span>Home</div>
           <div className={`nav-item${tab==="portfolio"?" active":""}`} onClick={()=>setTab("portfolio")}><span className="nav-icon">📊</span>Portfolio</div>
