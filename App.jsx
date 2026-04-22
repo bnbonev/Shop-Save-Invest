@@ -616,12 +616,12 @@ function LoginScreen({onLogin}) {
           options:{data:{full_name:f.name||f.email.split("@")[0]}}
         });
         if(error) throw error;
-        onLogin({name:f.name||f.email.split("@")[0],email:f.email,id:data.user?.id});
+        onLogin({name:f.name||f.email.split("@")[0],email:f.email,id:data.user?.id}, true);
       } else {
         const {data,error}=await supabase.auth.signInWithPassword({email:f.email,password:f.password});
         if(error) throw error;
         const name=data.user?.user_metadata?.full_name||f.email.split("@")[0];
-        onLogin({name,email:f.email,id:data.user?.id});
+        onLogin({name,email:f.email,id:data.user?.id}, false);
       }
     } catch(e) {
       setError(e.message);
@@ -647,7 +647,7 @@ function LoginScreen({onLogin}) {
           {loading?<><span className="spinner" style={{borderColor:"rgba(26,26,46,0.2)",borderTopColor:"#1a1a2e",width:16,height:16}}/>Processing…</>:tab==="login"?"Sign In →":"Create Account →"}
         </button>
         <div className="auth-hint">{tab==="login"?<>No account? <span onClick={()=>{setTab("signup");setError(null);}}>Sign up free</span></>:<>Already have one? <span onClick={()=>{setTab("login");setError(null);}}>Sign in</span></>}</div>
-        <div style={{marginTop:16,textAlign:"center"}}><button style={{background:"none",border:"1px solid #e8e4dc",borderRadius:10,padding:"10px 20px",fontSize:13,color:"#888",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}} onClick={()=>onLogin({name:"Demo User",email:"demo@shopsaveinvest.app"})}>👀 Try Demo</button></div>
+        <div style={{marginTop:16,textAlign:"center"}}><button style={{background:"none",border:"1px solid #e8e4dc",borderRadius:10,padding:"10px 20px",fontSize:13,color:"#888",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}} onClick={()=>onLogin({name:"Demo User",email:"demo@shopsaveinvest.app"}, false)}>👀 Try Demo</button></div>
       </div>
     </div>
   );
@@ -1347,7 +1347,7 @@ export default function App() {
         const u={name,email:session.user.email,id:session.user.id};
         setUser(u);
         loadUserData(session.user.id);
-        setScreen("app");
+        setScreen("app"); // returning user — skip onboarding
       }
     });
     const {data:{subscription}}=supabase.auth.onAuthStateChange((_event,session)=>{
@@ -1390,7 +1390,7 @@ export default function App() {
     setSavings(s=>s.map(x=>({...x,invested:true})));
   };
 
-  if(screen==="login") return <><style>{S}</style><div className="app"><LoginScreen onLogin={u=>{setUser(u);loadUserData(u.id);setScreen("onboarding");}}/></div></>;
+  if(screen==="login") return <><style>{S}</style><div className="app"><LoginScreen onLogin={(u,isNew)=>{setUser(u);loadUserData(u.id);setScreen(isNew?"onboarding":"app");}}/></div></>;
   if(screen==="onboarding") return <><style>{S}</style><div className="app"><OnboardingScreen onDone={()=>setScreen("app")} onSetRisk={setRiskId}/></div></>;
 
   if(loadingData) return <><style>{S}</style><div className="app" style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",flexDirection:"column",gap:16}}><div className="spinner" style={{width:40,height:40,borderWidth:4}}/><div style={{fontSize:14,color:"#888",fontFamily:"'DM Sans',sans-serif"}}>Loading your account…</div></div></>;
