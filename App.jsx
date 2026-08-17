@@ -70,18 +70,6 @@ async function investSavings(amount, profile) {
 }
 
 // ── Constants ─────────────────────────────────────────────────────
-const MOCK_SAVINGS = [
-  { id:1, store:"Whole Foods",  item:"Organic Oats (BOGO)",          type:"bogo",      saved:4.99,  date:"2026-04-07", invested:true  },
-  { id:2, store:"Target",       item:"Laundry Detergent (Sale)",      type:"sale",      saved:6.50,  date:"2026-04-06", invested:true  },
-  { id:3, store:"Costco",       item:"Olive Oil (BOGO)",              type:"bogo",      saved:12.99, date:"2026-04-04", invested:false },
-  { id:4, store:"Trader Joe's", item:"Almond Butter (Sale)",          type:"sale",      saved:2.49,  date:"2026-04-02", invested:false },
-  { id:5, store:"Publix",       item:"Groceries (Sale Tax Exempt)",   type:"taxexempt", saved:1.84,  date:"2026-04-03", invested:false },
-  { id:6, store:"Amazon",       item:"Bluetooth Speaker (Return)",    type:"return",    saved:34.99, date:"2026-04-01", invested:false },
-  { id:7, store:"CVS",          item:"Prescriptions (Sale Tax Exempt)",type:"taxexempt",saved:3.20,  date:"2026-03-30", invested:true  },
-  { id:8, store:"Best Buy",     item:"Headphones (Return)",           type:"return",    saved:49.99, date:"2026-03-28", invested:true  },
-  { id:9, store:"Kroger",       item:"Weekly Groceries (Sale)",       type:"sale",      saved:8.75,  date:"2026-03-25", invested:true  },
-];
-
 const PORTFOLIO_HISTORY = [
   {month:"Oct",value:12.40},{month:"Nov",value:28.90},{month:"Dec",value:41.20},
   {month:"Jan",value:67.80},{month:"Feb",value:89.50},{month:"Mar",value:118.30},{month:"Apr",value:149.73},
@@ -94,11 +82,6 @@ const MONTHLY_SAVINGS = [
   {month:"Feb",shopping:18.00,saleTax:4.20,returns:0},
   {month:"Mar",shopping:18.00,saleTax:3.80,returns:6.80},
   {month:"Apr",shopping:27.22,saleTax:5.04,returns:84.98},
-];
-const MOCK_HOLDINGS = [
-  {name:"Vanguard S&P 500 ETF",ticker:"VOO", shares:0.42,price:489.20,change:+1.24},
-  {name:"iShares Core MSCI",   ticker:"IEMG",shares:1.10,price:52.80, change:-0.31},
-  {name:"Cash",                ticker:"CASH",shares:null,price:8.93,  change:0},
 ];
 const TYPE_COLORS = {
   sale:      {bg:"#e8f5e9",text:"#2e7d32", label:"SHOPPING", chart:"#4caf50"},
@@ -665,7 +648,29 @@ function LoginScreen({onLogin}) {
   const [tab,setTab]=useState("login");
   const [f,setF]=useState({name:"",email:"",password:""});
   const set=(k,v)=>setF(p=>({...p,[k]:v}));
-  const submit=()=>{ if(!f.email||!f.password) return; onLogin({name:f.name||f.email.split("@")[0],email:f.email}); };
+  const submit=async()=>{
+    if(!f.email||!f.password) return;
+    setLoading(true); setError(null);
+    try {
+      if(tab==="signup") {
+        const {data,error}=await supabase.auth.signUp({
+          email:f.email, password:f.password,
+          options:{data:{full_name:f.name||f.email.split("@")[0]}}
+        });
+        if(error) throw error;
+        onLogin({name:f.name||f.email.split("@")[0],email:f.email,id:data.user?.id}, true);
+      } else {
+        const {data,error}=await supabase.auth.signInWithPassword({email:f.email,password:f.password});
+        if(error) throw error;
+        const name=data.user?.user_metadata?.full_name||f.email.split("@")[0];
+        onLogin({name,email:f.email,id:data.user?.id}, false);
+      }
+    } catch(e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
   return (
     <div className="auth-screen">
       <div className="auth-logo">Shop, Save, <span>Invest</span></div>
@@ -678,9 +683,12 @@ function LoginScreen({onLogin}) {
         {tab==="signup"&&<div className="auth-field"><label>Full Name</label><input placeholder="Jane Smith" value={f.name} onChange={e=>set("name",e.target.value)}/></div>}
         <div className="auth-field"><label>Email</label><input type="email" placeholder="you@email.com" value={f.email} onChange={e=>set("email",e.target.value)}/></div>
         <div className="auth-field"><label>Password</label><input type="password" placeholder="••••••••" value={f.password} onChange={e=>set("password",e.target.value)}/></div>
-        <button className="auth-btn" onClick={submit}>{tab==="login"?"Sign In →":"Create Account →"}</button>
+        {error&&<div style={{background:"#fce4ec",border:"1px solid #f48fb1",borderRadius:10,padding:"10px 14px",fontSize:12,color:"#880e4f",marginBottom:12}}>{error}</div>}
+        <button className="auth-btn" onClick={submit} disabled={loading}>
+          {loading?"Processing…":tab==="login"?"Sign In →":"Create Account →"}
+        </button>
         <div className="auth-hint">{tab==="login"?<>No account? <span onClick={()=>setTab("signup")}>Sign up free</span></>:<>Already have one? <span onClick={()=>setTab("login")}>Sign in</span></>}</div>
-        <div style={{marginTop:16,textAlign:"center"}}><button style={{background:"none",border:"1px solid #e8e4dc",borderRadius:10,padding:"10px 20px",fontSize:13,color:"#888",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}} onClick={()=>onLogin({name:"Demo User",email:"demo@shopSaveInvest.app"})}>👀 Try Demo</button></div>
+        <div style={{marginTop:16,textAlign:"center"}}><button style={{background:"none",border:"1px solid #e8e4dc",borderRadius:10,padding:"10px 20px",fontSize:13,color:"#888",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}} onClick={()=>onLogin({name:"Demo User",email:"demo@shopsaveinvest.app"}, false)}>👀 Try Demo</button></div>
       </div>
     </div>
   );
@@ -1332,13 +1340,13 @@ function SettingsScreen({user,onLogout,riskId,onSetRisk}) {
   );
 }
 
-function HomeScreen({user,savings,setSavings,invested,setInvested,taxRate,stateCode}) {
+function HomeScreen({user,savings,setSavings,addSaving,handleInvestAll,invested,setInvested,taxRate,stateCode}) {
   const [modal,setModal]=useState(null);const [toast,setToast]=useState(null);const [investing,setInvesting]=useState(false);
   const showToast=msg=>{setToast(msg);setTimeout(()=>setToast(null),3000);};
-  const addSaving=entry=>{setSavings(s=>[{...entry,id:Date.now(),date:new Date().toISOString().split("T")[0],invested:false},...s]);showToast(`✓ $${entry.saved.toFixed(2)} saved from ${entry.store}!`);};
+  const handleAddSaving=async entry=>{ await addSaving(entry); showToast(`✓ $${entry.saved.toFixed(2)} saved from ${entry.store}!`); };
   const uninvested=savings.filter(s=>!s.invested).reduce((a,s)=>a+s.saved,0);
-  const handleInvest=()=>{ if(uninvested<=0) return; setInvesting(true); setTimeout(()=>{setInvested(v=>v+uninvested);setSavings(s=>s.map(x=>({...x,invested:true})));setInvesting(false);showToast(`🚀 $${uninvested.toFixed(2)} invested!`);},1800); };
-  const [openDrop,setOpenDrop]=useState(null); // "shopping" | "saleTax" | "returns" | null
+  const handleInvest=()=>{ if(uninvested<=0) return; setInvesting(true); setTimeout(async()=>{await handleInvestAll(uninvested);setInvesting(false);showToast(`🚀 $${uninvested.toFixed(2)} invested!`);},1800); };
+  const [openDrop,setOpenDrop]=useState(null);
   const toggleDrop=key=>setOpenDrop(o=>o===key?null:key);
   return (
     <>
@@ -1384,13 +1392,13 @@ function HomeScreen({user,savings,setSavings,invested,setInvested,taxRate,stateC
           {savings.map(item=>{ const tc=TYPE_COLORS[item.type]||TYPE_COLORS.manual; return <div className="savings-item" key={item.id}><div className="savings-icon-wrap">{storeIcon(item.store)}</div><div className="savings-info"><div className="savings-store">{item.store}</div><div className="savings-name">{item.item}</div></div><div className="savings-right"><div className="savings-amount">+${item.saved.toFixed(2)}</div><div><span className="badge" style={{background:tc.bg,color:tc.text}}>{tc.label}</span></div>{item.invested?<div className="invested-tag">✓ Invested</div>:<div style={{fontSize:10,color:"#bbb",marginTop:3}}>{fmt(item.date)}</div>}</div></div>; })}
         </div>
       </div>
-      {modal==="manual"&&<ManualModal onClose={()=>setModal(null)} onSave={addSaving} taxRate={taxRate} stateCode={stateCode}/>}
-      {modal==="scan"&&<ScanModal onClose={()=>setModal(null)} onSave={addSaving}/>}
-      {modal==="email"&&<EmailModal onClose={()=>setModal(null)} onSave={addSaving}/>}
-      {modal==="tax"&&<TaxModal onClose={()=>setModal(null)} onSave={addSaving} taxRate={taxRate} stateCode={stateCode}/>}
-      {modal==="return"&&<ReturnModal onClose={()=>setModal(null)} onSave={addSaving}/>}
-      {modal==="returnScan"&&<ReturnScanModal onClose={()=>setModal(null)} onSave={addSaving}/>}
-      {modal==="returnEmail"&&<ReturnEmailModal onClose={()=>setModal(null)} onSave={addSaving}/>}
+      {modal==="manual"&&<ManualModal onClose={()=>setModal(null)} onSave={handleAddSaving} taxRate={taxRate} stateCode={stateCode}/>}
+      {modal==="scan"&&<ScanModal onClose={()=>setModal(null)} onSave={handleAddSaving}/>}
+      {modal==="email"&&<EmailModal onClose={()=>setModal(null)} onSave={handleAddSaving}/>}
+      {modal==="tax"&&<TaxModal onClose={()=>setModal(null)} onSave={handleAddSaving} taxRate={taxRate} stateCode={stateCode}/>}
+      {modal==="return"&&<ReturnModal onClose={()=>setModal(null)} onSave={handleAddSaving}/>}
+      {modal==="returnScan"&&<ReturnScanModal onClose={()=>setModal(null)} onSave={handleAddSaving}/>}
+      {modal==="returnEmail"&&<ReturnEmailModal onClose={()=>setModal(null)} onSave={handleAddSaving}/>}
       {toast&&<div className="toast">{toast}</div>}
     </>
   );
@@ -1401,11 +1409,59 @@ export default function App() {
   const [screen,setScreen]=useState("login");
   const [tab,setTab]=useState("home");
   const [user,setUser]=useState(null);
-  const [savings,setSavings]=useState(MOCK_SAVINGS);
-  const [invested,setInvested]=useState(149.73);
+  const [savings,setSavings]=useState([]);
+  const [invested,setInvested]=useState(0);
   const [taxRate,setTaxRate]=useState(0.07);
   const [stateCode,setStateCode]=useState(null);
   const [riskId,setRiskId]=useState("medium");
+  const [loadingData,setLoadingData]=useState(false);
+
+  const loadUserData=async(userId)=>{
+    if(!userId) return;
+    setLoadingData(true);
+    try {
+      const {data,error}=await supabase.from("savings").select("*").eq("user_id",userId).order("created_at",{ascending:false});
+      if(!error&&data){
+        setSavings(data);
+        setInvested(data.filter(s=>s.invested).reduce((a,s)=>a+s.saved,0));
+      }
+      const {data:prefs}=await supabase.from("user_prefs").select("risk_id").eq("user_id",userId).single();
+      if(prefs?.risk_id) setRiskId(prefs.risk_id);
+    } catch(e){ console.error(e); }
+    finally { setLoadingData(false); }
+  };
+
+  const addSaving=async(entry)=>{
+    if(user?.id){
+      const {data}=await supabase.from("savings").insert([{
+        user_id:user.id,store:entry.store,item:entry.item,
+        type:entry.type,saved:entry.saved,
+        date:new Date().toISOString().split("T")[0],invested:false
+      }]).select().single();
+      if(data) { setSavings(s=>[data,...s]); return; }
+    }
+    setSavings(s=>[{...entry,id:Date.now(),date:new Date().toISOString().split("T")[0],invested:false},...s]);
+  };
+
+  const handleInvestAll=async(amount)=>{
+    if(user?.id) await supabase.from("savings").update({invested:true}).eq("user_id",user.id).eq("invested",false);
+    setInvested(v=>v+amount);
+    setSavings(s=>s.map(x=>({...x,invested:true})));
+  };
+
+  useEffect(()=>{
+    supabase.auth.getSession().then(({data:{session}})=>{
+      if(session?.user){
+        const name=session.user.user_metadata?.full_name||session.user.email.split("@")[0];
+        const u={name,email:session.user.email,id:session.user.id};
+        setUser(u); loadUserData(session.user.id); setScreen("app");
+      }
+    });
+    const {data:{subscription}}=supabase.auth.onAuthStateChange((_,session)=>{
+      if(!session){ setUser(null); setSavings([]); setInvested(0); setScreen("login"); setTab("home"); }
+    });
+    return ()=>subscription.unsubscribe();
+  },[]);
 
   useEffect(()=>{
     if(!navigator.geolocation) return;
@@ -1415,17 +1471,22 @@ export default function App() {
     },()=>{},{timeout:6000});
   },[]);
 
-  if(screen==="login") return <><style>{S}</style><div className="app"><LoginScreen onLogin={u=>{setUser(u);setScreen("onboarding");}}/></div></>;
-  if(screen==="onboarding") return <><style>{S}</style><div className="app"><OnboardingScreen onDone={()=>setScreen("app")} onSetRisk={setRiskId}/></div></>;
+  const handleLogout=async()=>{
+    await supabase.auth.signOut();
+    setUser(null); setSavings([]); setInvested(0); setScreen("login"); setTab("home");
+  };
 
+  if(screen==="login") return <><style>{S}</style><div className="app"><LoginScreen onLogin={(u,isNew)=>{setUser(u);loadUserData(u.id);setScreen(isNew?"onboarding":"app");}}/></div></>;
+  if(screen==="onboarding") return <><style>{S}</style><div className="app"><OnboardingScreen onDone={()=>setScreen("app")} onSetRisk={setRiskId}/></div></>;
+  if(loadingData) return <><style>{S}</style><div className="app" style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",flexDirection:"column",gap:16}}><div className="spinner" style={{width:40,height:40,borderWidth:4}}/><div style={{fontSize:14,color:"#888",fontFamily:"'DM Sans',sans-serif"}}>Loading your account…</div></div></>;
   return (
     <>
       <style>{S}</style>
       <div className="app">
-        {tab==="home"&&<HomeScreen user={user} savings={savings} setSavings={setSavings} invested={invested} setInvested={setInvested} taxRate={taxRate} stateCode={stateCode}/>}
+        {tab==="home"&&<HomeScreen user={user} savings={savings} setSavings={setSavings} addSaving={addSaving} handleInvestAll={handleInvestAll} invested={invested} setInvested={setInvested} taxRate={taxRate} stateCode={stateCode}/>}
         {tab==="portfolio"&&<PortfolioScreen savings={savings} invested={invested}/>}
         {tab==="invest"&&<InvestScreen invested={invested} riskId={riskId} onInvestAll={handleInvestAll} uninvested={savings.filter(s=>!s.invested).reduce((a,s)=>a+s.saved,0)}/>}
-        {tab==="settings"&&<SettingsScreen user={user} onLogout={()=>{setUser(null);setScreen("login");setTab("home");}} riskId={riskId} onSetRisk={setRiskId}/>}
+        {tab==="settings"&&<SettingsScreen user={user} onLogout={handleLogout} riskId={riskId} onSetRisk={setRiskId}/>}
         <div className="bottom-nav">
           <div className={`nav-item${tab==="home"?" active":""}`} onClick={()=>setTab("home")}><span className="nav-icon">🏠</span>Home</div>
           <div className={`nav-item${tab==="portfolio"?" active":""}`} onClick={()=>setTab("portfolio")}><span className="nav-icon">📊</span>Portfolio</div>
