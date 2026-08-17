@@ -729,19 +729,9 @@ function SavingsSummary({store,shoppingSavings,saleTax,netSavings}) {
 }
 
 function ManualModal({onClose,onSave,taxRate,stateCode}) {
-  const [f,setF]=useState({store:"",shopping:"",taxPaid:"",totalPurchase:""});
-  const [detecting,setDetecting]=useState(false);
-  const [detectedState,setDetectedState]=useState(stateCode);
-  const [detectedRate,setDetectedRate]=useState(taxRate);
+  const [f,setF]=useState({store:"",shopping:"",taxPaid:"",totalPurchase:"",taxRateInput:""});
   const set=(k,v)=>setF(p=>({...p,[k]:v}));
 
-  // Auto-decimal formatting — converts "1299" to "12.99" as user types
-  const formatCurrency=(val)=>{
-    const digits=val.replace(/\D/g,"");
-    if(!digits) return "";
-    const num=parseInt(digits,10)/100;
-    return num.toFixed(2);
-  };
   const handleCurrencyInput=(key,val)=>{
     const digits=val.replace(/\D/g,"");
     if(!digits){ set(key,""); return; }
@@ -749,30 +739,16 @@ function ManualModal({onClose,onSave,taxRate,stateCode}) {
     set(key,num.toFixed(2));
   };
 
-  // Auto-detect location when modal opens
-  useEffect(()=>{
-    if(stateCode){ setDetectedState(stateCode); setDetectedRate(taxRate); return; }
-    if(!navigator.geolocation) return;
-    setDetecting(true);
-    navigator.geolocation.getCurrentPosition(async pos=>{
-      const code=await detectStateFromCoords(pos.coords.latitude,pos.coords.longitude);
-      if(code&&STATE_TAX_RATES[code]!==undefined){
-        setDetectedState(code);
-        setDetectedRate(STATE_TAX_RATES[code]);
-      }
-      setDetecting(false);
-    },()=>{ setDetecting(false); },{timeout:6000});
-  },[]);
-
-  const effectiveTaxRate=detectedRate||taxRate;
-  const effectiveState=detectedState||stateCode;
+  // Use entered rate, or fall back to detected state rate
+  const enteredRate=parseFloat(f.taxRateInput)/100||0;
+  const effectiveTaxRate=enteredRate||taxRate||0.07;
 
   const shopping=parseFloat(f.shopping)||0;
   const taxPaid=parseFloat(f.taxPaid)||0;
   const totalPurchase=parseFloat(f.totalPurchase)||0;
 
   const fullTax=parseFloat((totalPurchase*effectiveTaxRate).toFixed(2));
-  const saleTaxSavings=totalPurchase>0&&taxPaid>=0 ? parseFloat(Math.max(0,fullTax-taxPaid).toFixed(2)) : 0;
+  const saleTaxSavings=totalPurchase>0&&taxPaid>=0?parseFloat(Math.max(0,fullTax-taxPaid).toFixed(2)):0;
   const net=parseFloat((shopping+saleTaxSavings).toFixed(2));
   const ok=f.store&&net>0;
 
@@ -792,35 +768,32 @@ function ManualModal({onClose,onSave,taxRate,stateCode}) {
         </div>
 
         <div style={{background:"#fff8e1",border:"1px solid #ffe082",borderRadius:12,padding:"12px 14px",marginBottom:16}}>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
-            <div style={{fontSize:11,fontWeight:700,color:"#e65100",letterSpacing:1}}>
-              🧾 SALE TAX SAVINGS
+          <div style={{fontSize:11,fontWeight:700,color:"#e65100",letterSpacing:1,marginBottom:10}}>🧾 SALE TAX SAVINGS</div>
+
+          <div className="field" style={{marginBottom:10}}>
+            <label>Tax Rate (%)</label>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <input type="text" inputMode="decimal" placeholder="e.g. 7.5" value={f.taxRateInput}
+                onChange={e=>set("taxRateInput",e.target.value.replace(/[^0-9.]/g,""))}
+                style={{flex:1}}/>
+              <span style={{fontSize:14,fontWeight:600,color:"#e65100",flexShrink:0}}>%</span>
             </div>
-            <div style={{display:"flex",alignItems:"center",gap:6}}>
-              {detecting?<span style={{fontSize:11,color:"#e65100"}}>📍 Detecting…</span>:
-              <select value={effectiveState||""} onChange={e=>{
-                const code=e.target.value;
-                setDetectedState(code);
-                setDetectedRate(STATE_TAX_RATES[code]||0);
-              }} style={{fontSize:11,color:"#e65100",fontWeight:600,border:"1px solid #ffe082",borderRadius:8,padding:"3px 6px",background:"#fff8e1",fontFamily:"'DM Sans',sans-serif"}}>
-                <option value="">📍 Select State</option>
-                {Object.entries(STATE_TAX_RATES).map(([code,rate])=>(
-                  <option key={code} value={code}>{code} — {(rate*100).toFixed(2)}%</option>
-                ))}
-              </select>}
-            </div>
+            <div style={{fontSize:11,color:"#aaa",marginTop:4}}>Find this on your receipt — e.g. "Sales Tax 7.5%"</div>
           </div>
+
           <div className="field" style={{marginBottom:10}}>
             <label>Total Purchase Amount ($)</label>
             <input type="text" inputMode="numeric" placeholder="$0.00" value={f.totalPurchase} onChange={e=>handleCurrencyInput("totalPurchase",e.target.value)}/>
             <div style={{fontSize:11,color:"#aaa",marginTop:4}}>Subtotal before tax on your receipt</div>
           </div>
+
           <div className="field" style={{marginBottom:0}}>
             <label>Sale Tax Paid ($)</label>
             <input type="text" inputMode="numeric" placeholder="$0.00" value={f.taxPaid} onChange={e=>handleCurrencyInput("taxPaid",e.target.value)}/>
             <div style={{fontSize:11,color:"#aaa",marginTop:4}}>Sales tax line on your receipt</div>
           </div>
-          {totalPurchase>0&&taxPaid>=0&&(
+
+          {totalPurchase>0&&taxPaid>=0&&enteredRate>0&&(
             <div style={{marginTop:10,paddingTop:10,borderTop:"1px solid #ffe082",fontSize:12,color:"#5d4037"}}>
               <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
                 <span>Full tax at {(effectiveTaxRate*100).toFixed(2)}%</span><span>${fullTax.toFixed(2)}</span>
