@@ -17,36 +17,57 @@ const alpacaHeaders = {
   "APCA-API-KEY-ID":     ALPACA_KEY,
   "APCA-API-SECRET-KEY": ALPACA_SECRET,
   "Content-Type":        "application/json",
+  "Access-Control-Allow-Origin": "*",
 };
 
 // Fetch current positions
 async function getAlpacaPositions() {
-  const r = await fetch(`${ALPACA_BASE}/v2/positions`, { headers: alpacaHeaders });
-  return r.json();
+  try {
+    const r = await fetch(`${ALPACA_BASE}/v2/positions`, {
+      method: "GET",
+      headers: alpacaHeaders,
+      mode: "cors",
+    });
+    if(!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r.json();
+  } catch(e) {
+    console.error("Positions error:", e);
+    return [];
+  }
 }
 
 // Fetch latest price for a symbol
 async function getLatestPrice(symbol) {
-  const r = await fetch(`${ALPACA_DATA}/v2/stocks/${symbol}/quotes/latest`, { headers: alpacaHeaders });
-  const d = await r.json();
-  return d?.quote?.ap || d?.quote?.bp || null;
+  try {
+    const r = await fetch(`${ALPACA_DATA}/v2/stocks/${symbol}/quotes/latest`, {
+      headers: alpacaHeaders, mode: "cors"
+    });
+    const d = await r.json();
+    return d?.quote?.ap || d?.quote?.bp || null;
+  } catch(e) { return null; }
 }
 
 // Place a market order
 async function placeOrder(symbol, notional) {
   if (notional < 1) return null;
-  const r = await fetch(`${ALPACA_BASE}/v2/orders`, {
-    method: "POST",
-    headers: alpacaHeaders,
-    body: JSON.stringify({
-      symbol,
-      notional: notional.toFixed(2),
-      side: "buy",
-      type: "market",
-      time_in_force: "day",
-    }),
-  });
-  return r.json();
+  try {
+    const r = await fetch(`${ALPACA_BASE}/v2/orders`, {
+      method: "POST",
+      headers: alpacaHeaders,
+      mode: "cors",
+      body: JSON.stringify({
+        symbol,
+        notional: notional.toFixed(2),
+        side: "buy",
+        type: "market",
+        time_in_force: "day",
+      }),
+    });
+    return r.json();
+  } catch(e) {
+    console.error("Order error:", e);
+    return null;
+  }
 }
 
 // Invest savings according to risk profile allocations
@@ -709,13 +730,47 @@ function SavingsSummary({store,shoppingSavings,saleTax,netSavings}) {
 
 function ManualModal({onClose,onSave,taxRate,stateCode}) {
   const [f,setF]=useState({store:"",shopping:"",taxPaid:"",totalPurchase:""});
+  const [detecting,setDetecting]=useState(false);
+  const [detectedState,setDetectedState]=useState(stateCode);
+  const [detectedRate,setDetectedRate]=useState(taxRate);
   const set=(k,v)=>setF(p=>({...p,[k]:v}));
+
+  // Auto-decimal formatting — converts "1299" to "12.99" as user types
+  const formatCurrency=(val)=>{
+    const digits=val.replace(/\D/g,"");
+    if(!digits) return "";
+    const num=parseInt(digits,10)/100;
+    return num.toFixed(2);
+  };
+  const handleCurrencyInput=(key,val)=>{
+    const digits=val.replace(/\D/g,"");
+    if(!digits){ set(key,""); return; }
+    const num=parseInt(digits,10)/100;
+    set(key,num.toFixed(2));
+  };
+
+  // Location detection for tax rate
+  const detectLocation=()=>{
+    if(!navigator.geolocation){ alert("Location not available on this device."); return; }
+    setDetecting(true);
+    navigator.geolocation.getCurrentPosition(async pos=>{
+      const code=await detectStateFromCoords(pos.coords.latitude,pos.coords.longitude);
+      if(code&&STATE_TAX_RATES[code]!==undefined){
+        setDetectedState(code);
+        setDetectedRate(STATE_TAX_RATES[code]);
+      }
+      setDetecting(false);
+    },()=>{ setDetecting(false); alert("Could not detect location."); },{timeout:6000});
+  };
+
+  const effectiveTaxRate=detectedRate||taxRate;
+  const effectiveState=detectedState||stateCode;
 
   const shopping=parseFloat(f.shopping)||0;
   const taxPaid=parseFloat(f.taxPaid)||0;
   const totalPurchase=parseFloat(f.totalPurchase)||0;
 
-  const fullTax=parseFloat((totalPurchase*taxRate).toFixed(2));
+  const fullTax=parseFloat((totalPurchase*effectiveTaxRate).toFixed(2));
   const saleTaxSavings=totalPurchase>0&&taxPaid>=0 ? parseFloat(Math.max(0,fullTax-taxPaid).toFixed(2)) : 0;
   const net=parseFloat((shopping+saleTaxSavings).toFixed(2));
   const ok=f.store&&net>0;
@@ -731,28 +786,33 @@ function ManualModal({onClose,onSave,taxRate,stateCode}) {
         </div>
         <div className="field">
           <label>Shopping Savings ($)</label>
-          <input type="number" placeholder="$0.00" step="0.01" value={f.shopping} onChange={e=>set("shopping",e.target.value)}/>
+          <input type="text" inputMode="numeric" placeholder="$0.00" value={f.shopping} onChange={e=>handleCurrencyInput("shopping",e.target.value)}/>
           <div style={{fontSize:11,color:"#aaa",marginTop:4}}>From "You saved $X" at the bottom of your receipt</div>
         </div>
 
         <div style={{background:"#fff8e1",border:"1px solid #ffe082",borderRadius:12,padding:"12px 14px",marginBottom:16}}>
-          <div style={{fontSize:11,fontWeight:700,color:"#e65100",letterSpacing:1,marginBottom:10}}>
-            🧾 SALE TAX SAVINGS {stateCode?`· ${(taxRate*100).toFixed(2)}% (${stateCode})`:""}
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+            <div style={{fontSize:11,fontWeight:700,color:"#e65100",letterSpacing:1}}>
+              🧾 SALE TAX SAVINGS {effectiveState?`· ${(effectiveTaxRate*100).toFixed(2)}% (${effectiveState})`:""}
+            </div>
+            <button onClick={detectLocation} disabled={detecting} style={{background:"none",border:"1px solid #ffe082",borderRadius:8,padding:"4px 8px",fontSize:11,color:"#e65100",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
+              {detecting?"📍 Detecting…":"📍 Detect"}
+            </button>
           </div>
           <div className="field" style={{marginBottom:10}}>
             <label>Total Purchase Amount ($)</label>
-            <input type="number" placeholder="$0.00" step="0.01" value={f.totalPurchase} onChange={e=>set("totalPurchase",e.target.value)}/>
+            <input type="text" inputMode="numeric" placeholder="$0.00" value={f.totalPurchase} onChange={e=>handleCurrencyInput("totalPurchase",e.target.value)}/>
             <div style={{fontSize:11,color:"#aaa",marginTop:4}}>Subtotal before tax on your receipt</div>
           </div>
           <div className="field" style={{marginBottom:0}}>
             <label>Sale Tax Paid ($)</label>
-            <input type="number" placeholder="$0.00" step="0.01" value={f.taxPaid} onChange={e=>set("taxPaid",e.target.value)}/>
+            <input type="text" inputMode="numeric" placeholder="$0.00" value={f.taxPaid} onChange={e=>handleCurrencyInput("taxPaid",e.target.value)}/>
             <div style={{fontSize:11,color:"#aaa",marginTop:4}}>Sales tax line on your receipt</div>
           </div>
           {totalPurchase>0&&taxPaid>=0&&(
             <div style={{marginTop:10,paddingTop:10,borderTop:"1px solid #ffe082",fontSize:12,color:"#5d4037"}}>
               <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
-                <span>Full tax at {(taxRate*100).toFixed(2)}%</span><span>${fullTax.toFixed(2)}</span>
+                <span>Full tax at {(effectiveTaxRate*100).toFixed(2)}%</span><span>${fullTax.toFixed(2)}</span>
               </div>
               <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
                 <span>Sale tax paid</span><span>− ${taxPaid.toFixed(2)}</span>
@@ -946,6 +1006,12 @@ function ReturnSummary({store,item,amount}) {
 function ReturnModal({onClose,onSave}) {
   const [f,setF]=useState({store:"",item:"",amt:""});
   const set=(k,v)=>setF(p=>({...p,[k]:v}));
+  const handleCurrencyInput=(key,val)=>{
+    const digits=val.replace(/\D/g,"");
+    if(!digits){ set(key,""); return; }
+    const num=parseInt(digits,10)/100;
+    set(key,num.toFixed(2));
+  };
   const amt=parseFloat(f.amt)||0;
   return (
     <div className="overlay" onClick={e=>e.target===e.currentTarget&&onClose()}>
@@ -954,7 +1020,7 @@ function ReturnModal({onClose,onSave}) {
         <div className="ret-bar">🔄 Returned money — invest it instead!</div>
         <div className="field" style={{marginTop:14}}><label>Store</label><input placeholder="e.g. Amazon, Target" value={f.store} onChange={e=>set("store",e.target.value)}/></div>
         <div className="field"><label>Item Returned</label><input placeholder="e.g. Bluetooth Speaker" value={f.item} onChange={e=>set("item",e.target.value)}/></div>
-        <div className="field"><label>Refund Amount ($)</label><input type="number" placeholder="$0.00" step="0.01" value={f.amt} onChange={e=>set("amt",e.target.value)}/></div>
+        <div className="field"><label>Refund Amount ($)</label><input type="text" inputMode="numeric" placeholder="$0.00" value={f.amt} onChange={e=>handleCurrencyInput("amt",e.target.value)}/></div>
         {amt>0&&<ReturnSummary store={f.store} item={f.item} amount={amt}/>}
         <button className="sub-btn" disabled={!f.store||!f.item||amt<=0} onClick={()=>{onSave({store:f.store,item:`${f.item} (Return)`,type:"return",saved:amt});onClose();}}>Invest ${amt>0?amt.toFixed(2):"0.00"} →</button>
       </div>
@@ -1148,6 +1214,7 @@ function PortfolioScreen({savings,invested}) {
 
 function InvestScreen({invested,riskId,onInvestAll,uninvested}) {
   const [positions,setPositions]=useState([]);
+  const [orders,setOrders]=useState([]);
   const [loading,setLoading]=useState(true);
   const [investing,setInvesting]=useState(false);
   const [toast,setToast]=useState(null);
@@ -1157,9 +1224,33 @@ function InvestScreen({invested,riskId,onInvestAll,uninvested}) {
   const loadPositions=async()=>{
     setLoading(true);
     try {
-      const pos=await getAlpacaPositions();
-      setPositions(Array.isArray(pos)?pos:[]);
-    } catch(e){ console.error("Alpaca error:",e); }
+      // Load positions
+      const r = await fetch(`${ALPACA_BASE}/v2/positions`, {
+        method: "GET",
+        headers: {
+          "APCA-API-KEY-ID": ALPACA_KEY,
+          "APCA-API-SECRET-KEY": ALPACA_SECRET,
+        },
+      });
+      if(r.ok) {
+        const pos = await r.json();
+        setPositions(Array.isArray(pos)?pos:[]);
+      }
+      // Load recent orders to show pending trades
+      const r2 = await fetch(`${ALPACA_BASE}/v2/orders?status=all&limit=10`, {
+        method: "GET",
+        headers: {
+          "APCA-API-KEY-ID": ALPACA_KEY,
+          "APCA-API-SECRET-KEY": ALPACA_SECRET,
+        },
+      });
+      if(r2.ok) {
+        const ord = await r2.json();
+        setOrders(Array.isArray(ord)?ord:[]);
+      }
+    } catch(e){
+      console.error("Alpaca error:",e);
+    }
     finally { setLoading(false); }
   };
 
@@ -1213,10 +1304,33 @@ function InvestScreen({invested,riskId,onInvestAll,uninvested}) {
       <div className="section">
         <div className="section-header"><div className="section-title">Holdings</div></div>
         {loading?<div style={{textAlign:"center",padding:20,color:"#aaa"}}>Loading positions…</div>:
-          positions.length===0?
-          <div style={{textAlign:"center",padding:24,color:"#aaa",fontSize:13}}>
-            No positions yet — log savings and tap Invest to get started!
-          </div>:
+          positions.length===0?(
+            <div>
+              <div style={{textAlign:"center",padding:"16px 24px",color:"#aaa",fontSize:13}}>
+                No filled positions yet.
+              </div>
+              {orders.length>0&&<>
+                <div style={{fontSize:12,fontWeight:700,color:"#888",letterSpacing:1,padding:"0 4px 8px"}}>PENDING / RECENT ORDERS</div>
+                {orders.slice(0,5).map((o,i)=>(
+                  <div key={i} className="holding-card">
+                    <div className="holding-ticker" style={{background:"#fff8e1",color:"#e65100",fontSize:11}}>{o.symbol}</div>
+                    <div className="holding-info">
+                      <div className="holding-name">{o.symbol}</div>
+                      <div className="holding-shares">${parseFloat(o.notional||0).toFixed(2)} · {o.side} · {o.type}</div>
+                      <div className="alloc-bar"><div className="alloc-fill" style={{width:"60%",background:"#e65100"}}/></div>
+                    </div>
+                    <div className="holding-right">
+                      <div style={{fontSize:11,fontWeight:700,color:o.status==="filled"?"#4caf50":o.status==="canceled"?"#f44336":"#e65100",textTransform:"uppercase"}}>{o.status}</div>
+                      <div style={{fontSize:10,color:"#bbb",marginTop:2}}>{new Date(o.created_at).toLocaleDateString()}</div>
+                    </div>
+                  </div>
+                ))}
+                <div style={{fontSize:11,color:"#aaa",textAlign:"center",marginTop:8}}>
+                  Positions appear after market hours (Mon–Fri 9:30am–4pm ET)
+                </div>
+              </>}
+            </div>
+          ):
           positions.map((p,i)=>{
             const val=parseFloat(p.market_value||0);
             const pl=parseFloat(p.unrealized_pl||0);
@@ -1377,7 +1491,7 @@ function HomeScreen({user,savings,setSavings,addSaving,handleInvestAll,invested,
         <div className="section" style={{paddingTop:16}}>
           <div className="section-header"><div className="section-title">Savings History</div><span className="see-all">${savings.reduce((a,s)=>a+s.saved,0).toFixed(2)} total</span></div>
           {savings.length===0&&<div className="empty">No savings yet!</div>}
-          {savings.map(item=>{ const tc=TYPE_COLORS[item.type]||TYPE_COLORS.manual; return <div className="savings-item" key={item.id}><div className="savings-icon-wrap">{storeIcon(item.store)}</div><div className="savings-info"><div className="savings-store">{item.store}</div><div className="savings-name">{item.item}</div></div><div className="savings-right"><div className="savings-amount">+${item.saved.toFixed(2)}</div><div><span className="badge" style={{background:tc.bg,color:tc.text}}>{tc.label}</span></div>{item.invested?<div className="invested-tag">✓ Invested</div>:<div style={{fontSize:10,color:"#bbb",marginTop:3}}>{fmt(item.date)}</div>}</div></div>; })}
+          {savings.map(item=>{ const tc=TYPE_COLORS[item.type]||TYPE_COLORS.manual; return <div className="savings-item" key={item.id}><div className="savings-icon-wrap">{storeIcon(item.store)}</div><div className="savings-info"><div className="savings-store">{item.store}</div><div className="savings-name">{item.item}</div><div style={{fontSize:10,color:"#bbb",marginTop:2}}>{fmt(item.date)}</div></div><div className="savings-right"><div className="savings-amount">+${item.saved.toFixed(2)}</div><div><span className="badge" style={{background:tc.bg,color:tc.text}}>{tc.label}</span></div>{item.invested&&<div className="invested-tag">✓ Invested</div>}</div></div>; })}
         </div>
       </div>
       {modal==="manual"&&<ManualModal onClose={()=>setModal(null)} onSave={handleAddSaving} taxRate={taxRate} stateCode={stateCode}/>}
