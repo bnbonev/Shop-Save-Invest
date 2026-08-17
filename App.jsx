@@ -19,12 +19,6 @@ const alpacaHeaders = {
   "Content-Type":        "application/json",
 };
 
-// Fetch account info
-async function getAlpacaAccount() {
-  const r = await fetch(`${ALPACA_BASE}/v2/account`, { headers: alpacaHeaders });
-  return r.json();
-}
-
 // Fetch current positions
 async function getAlpacaPositions() {
   const r = await fetch(`${ALPACA_BASE}/v2/positions`, { headers: alpacaHeaders });
@@ -1153,7 +1147,6 @@ function PortfolioScreen({savings,invested}) {
 }
 
 function InvestScreen({invested,riskId,onInvestAll,uninvested}) {
-  const [account,setAccount]=useState(null);
   const [positions,setPositions]=useState([]);
   const [loading,setLoading]=useState(true);
   const [investing,setInvesting]=useState(false);
@@ -1161,17 +1154,16 @@ function InvestScreen({invested,riskId,onInvestAll,uninvested}) {
   const profile=RISK_PROFILES.find(p=>p.id===riskId)||RISK_PROFILES[2];
   const showToast=msg=>{setToast(msg);setTimeout(()=>setToast(null),3000);};
 
-  const loadAlpacaData=async()=>{
+  const loadPositions=async()=>{
     setLoading(true);
     try {
-      const [acct,pos]=await Promise.all([getAlpacaAccount(),getAlpacaPositions()]);
-      setAccount(acct);
+      const pos=await getAlpacaPositions();
       setPositions(Array.isArray(pos)?pos:[]);
-    } catch(e) { console.error("Alpaca error:",e); }
+    } catch(e){ console.error("Alpaca error:",e); }
     finally { setLoading(false); }
   };
 
-  useEffect(()=>{ loadAlpacaData(); },[]);
+  useEffect(()=>{ loadPositions(); },[]);
 
   const handleInvest=async()=>{
     if(uninvested<1) return;
@@ -1180,16 +1172,16 @@ function InvestScreen({invested,riskId,onInvestAll,uninvested}) {
       await investSavings(uninvested,profile);
       if(onInvestAll) await onInvestAll(uninvested);
       showToast(`🚀 $${uninvested.toFixed(2)} invested!`);
-      setTimeout(loadAlpacaData,2000);
-    } catch(e) {
+      setTimeout(loadPositions,2000);
+    } catch(e){
       showToast("Error placing trades. Try again.");
     } finally { setInvesting(false); }
   };
 
-  const totalValue=account?parseFloat(account.portfolio_value||0):0;
-  const cash=account?parseFloat(account.cash||0):0;
-  const gain=account?parseFloat(account.unrealized_pl||0):0;
-  const gainPct=account?parseFloat(account.unrealized_plpc||0)*100:0;
+  // Calculate total from app-invested positions only
+  const totalPositionValue=positions.reduce((a,p)=>a+parseFloat(p.market_value||0),0);
+  const totalGain=positions.reduce((a,p)=>a+parseFloat(p.unrealized_pl||0),0);
+  const gainPct=invested>0?(totalGain/invested)*100:0;
 
   return (
     <div style={{paddingBottom:90}}>
@@ -1198,9 +1190,15 @@ function InvestScreen({invested,riskId,onInvestAll,uninvested}) {
         <div className="inv-title">Investment Account</div>
         <div className="inv-sub">Powered by Alpaca · Paper Trading</div>
         {loading?<div className="spinner" style={{margin:"16px auto",width:32,height:32,borderWidth:3}}/>:<>
-          <div className="inv-total">${totalValue.toFixed(2)}</div>
-          <div className="inv-gain" style={{color:gain>=0?"#81c784":"#e57373"}}>
-            {gain>=0?"↑":"↓"} {gain>=0?"+":""}{gain.toFixed(2)} ({gainPct.toFixed(2)}%) unrealized
+          <div className="inv-total">${(invested+totalGain).toFixed(2)}</div>
+          <div style={{display:"flex",gap:12,justifyContent:"center",marginTop:4}}>
+            <div style={{fontSize:12,color:"#aaa"}}>Invested: <span style={{color:"#d4af37",fontWeight:600}}>${invested.toFixed(2)}</span></div>
+            {totalGain!==0&&<div style={{fontSize:12,color:totalGain>=0?"#81c784":"#e57373"}}>
+              {totalGain>=0?"↑":"↓"} {totalGain>=0?"+":""}{totalGain.toFixed(2)} ({gainPct.toFixed(2)}%)
+            </div>}
+          </div>
+          <div style={{fontSize:11,color:"#666",marginTop:6,background:"rgba(255,255,255,0.1)",borderRadius:8,padding:"4px 10px",display:"inline-block"}}>
+            📝 Paper Trading — no real money
           </div>
         </>}
       </div>
@@ -1209,7 +1207,7 @@ function InvestScreen({invested,riskId,onInvestAll,uninvested}) {
         <button className="inv-act-btn primary" onClick={handleInvest} disabled={investing||uninvested<1}>
           {investing?<><span className="spinner" style={{borderColor:"rgba(255,255,255,0.3)",borderTopColor:"#fff",width:16,height:16,borderWidth:2}}/>Investing…</>:`🚀 Invest $${uninvested>0?uninvested.toFixed(2):"0.00"}`}
         </button>
-        <button className="inv-act-btn secondary" onClick={loadAlpacaData}>🔄 Refresh</button>
+        <button className="inv-act-btn secondary" onClick={loadPositions}>🔄 Refresh</button>
       </div>
 
       <div className="section">
@@ -1217,14 +1215,13 @@ function InvestScreen({invested,riskId,onInvestAll,uninvested}) {
         {loading?<div style={{textAlign:"center",padding:20,color:"#aaa"}}>Loading positions…</div>:
           positions.length===0?
           <div style={{textAlign:"center",padding:24,color:"#aaa",fontSize:13}}>
-            No positions yet — invest your savings to get started!
+            No positions yet — log savings and tap Invest to get started!
           </div>:
           positions.map((p,i)=>{
             const val=parseFloat(p.market_value||0);
             const pl=parseFloat(p.unrealized_pl||0);
             const plPct=parseFloat(p.unrealized_plpc||0)*100;
-            const totalPos=positions.reduce((a,x)=>a+parseFloat(x.market_value||0),0);
-            const pct=totalPos>0?((val/totalPos)*100).toFixed(0):0;
+            const pct=totalPositionValue>0?((val/totalPositionValue)*100).toFixed(0):0;
             return (
               <div key={i} className="holding-card">
                 <div className="holding-ticker">{p.symbol}</div>
@@ -1241,17 +1238,6 @@ function InvestScreen({invested,riskId,onInvestAll,uninvested}) {
             );
           })
         }
-        {!loading&&cash>0&&(
-          <div className="holding-card">
-            <div className="holding-ticker" style={{background:"#e8f5e9",color:"#2e7d32"}}>CASH</div>
-            <div className="holding-info">
-              <div className="holding-name">Cash Balance</div>
-              <div className="holding-shares">Available to invest</div>
-              <div className="alloc-bar"><div className="alloc-fill" style={{width:"100%",background:"#4caf50"}}/></div>
-            </div>
-            <div className="holding-right"><div className="holding-value">${cash.toFixed(2)}</div></div>
-          </div>
-        )}
       </div>
 
       <div className="section" style={{paddingTop:16}}>
