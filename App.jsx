@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+cimport { useState, useRef, useEffect } from "react";
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm";
 
@@ -85,19 +85,6 @@ async function investSavings(amount, profile) {
 }
 
 // ── Constants ─────────────────────────────────────────────────────
-const PORTFOLIO_HISTORY = [
-  {month:"Oct",value:12.40},{month:"Nov",value:28.90},{month:"Dec",value:41.20},
-  {month:"Jan",value:67.80},{month:"Feb",value:89.50},{month:"Mar",value:118.30},{month:"Apr",value:149.73},
-];
-const MONTHLY_SAVINGS = [
-  {month:"Oct",shopping:7.30,saleTax:1.80,returns:0},
-  {month:"Nov",shopping:11.90,saleTax:2.10,returns:8.90},
-  {month:"Dec",shopping:14.00,saleTax:3.50,returns:0},
-  {month:"Jan",shopping:16.00,saleTax:2.90,returns:7.50},
-  {month:"Feb",shopping:18.00,saleTax:4.20,returns:0},
-  {month:"Mar",shopping:18.00,saleTax:3.80,returns:6.80},
-  {month:"Apr",shopping:27.22,saleTax:5.04,returns:84.98},
-];
 const TYPE_COLORS = {
   sale:      {bg:"#e8f5e9",text:"#2e7d32", label:"SHOPPING", chart:"#4caf50"},
   bogo:      {bg:"#e8f5e9",text:"#2e7d32", label:"SHOPPING", chart:"#4caf50"},
@@ -740,8 +727,8 @@ function ManualModal({onClose,onSave,taxRate,stateCode}) {
   };
 
   // Use entered rate, or fall back to detected state rate
-  const enteredRate=parseFloat(f.taxRateInput)/100||0;
-  const effectiveTaxRate=enteredRate||taxRate||0.07;
+  const enteredRate=parseFloat(f.taxRateInput)||0;
+  const effectiveTaxRate=(enteredRate/100)||taxRate||0.07;
 
   const shopping=parseFloat(f.shopping)||0;
   const taxPaid=parseFloat(f.taxPaid)||0;
@@ -776,21 +763,28 @@ function ManualModal({onClose,onSave,taxRate,stateCode}) {
               <input
                 type="text"
                 inputMode="numeric"
-                placeholder="e.g. 7.5"
+                placeholder="e.g. 75 for 7.5%"
                 value={f.taxRateInput}
                 onChange={e=>{
-                  const raw=e.target.value.replace(/[^0-9]/g,"");
-                  if(!raw){ set("taxRateInput",""); return; }
-                  // Auto insert decimal: 75 → 7.5, 750 → 7.50
-                  const padded=raw.padStart(2,"0");
-                  const formatted=padded.slice(0,-1)+"."+padded.slice(-1);
-                  set("taxRateInput",formatted);
+                  const digits=e.target.value.replace(/[^0-9]/g,"");
+                  if(!digits){ set("taxRateInput",""); return; }
+                  const num=parseInt(digits,10);
+                  // 1-2 digits: treat as whole number (7 → 7, 10 → 10)
+                  // 3+ digits: insert decimal before last digit (75 → 7.5, 100 → 10.0)
+                  if(digits.length<=2){
+                    set("taxRateInput",String(num));
+                  } else {
+                    const whole=digits.slice(0,-1);
+                    const dec=digits.slice(-1);
+                    const result=parseFloat(whole+"."+dec);
+                    set("taxRateInput",String(result));
+                  }
                 }}
                 style={{flex:1}}
               />
               <span style={{fontSize:14,fontWeight:600,color:"#e65100",flexShrink:0}}>%</span>
             </div>
-            <div style={{fontSize:11,color:"#aaa",marginTop:4}}>From your receipt — e.g. type 75 for 7.5%</div>
+            <div style={{fontSize:11,color:"#aaa",marginTop:4}}>Type 75 for 7.5% · Type 7 for 7% · Type 10 for 10%</div>
           </div>
 
           <div className="field" style={{marginBottom:10}}>
@@ -808,7 +802,7 @@ function ManualModal({onClose,onSave,taxRate,stateCode}) {
           {totalPurchase>0&&taxPaid>=0&&enteredRate>0&&(
             <div style={{marginTop:10,paddingTop:10,borderTop:"1px solid #ffe082",fontSize:12,color:"#5d4037"}}>
               <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
-                <span>Full tax at {(effectiveTaxRate*100).toFixed(2)}%</span><span>${fullTax.toFixed(2)}</span>
+                <span>Full tax at {parseFloat((effectiveTaxRate*100).toFixed(1))}%</span><span>${fullTax.toFixed(2)}</span>
               </div>
               <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
                 <span>Sale tax paid</span><span>− ${taxPaid.toFixed(2)}</span>
@@ -1191,19 +1185,120 @@ function AutoDetectPanel({onAccept}) {
 
 // ── Portfolio Screen ──────────────────────────────────────────────
 function PortfolioScreen({savings,invested}) {
+  // ── Pie chart — real category breakdown ──────────────────────────
   const byType=[
     {name:"Shopping Savings", value:savings.filter(s=>s.type==="sale"||s.type==="bogo"||s.type==="manual").reduce((a,s)=>a+s.saved,0), color:"#4caf50"},
-    {name:"Sale Tax",         value:savings.filter(s=>s.type==="taxexempt").reduce((a,s)=>a+s.saved,0),                                 color:"#ff9800"},
-    {name:"Returns",          value:savings.filter(s=>s.type==="return").reduce((a,s)=>a+s.saved,0),                                    color:"#e91e63"},
+    {name:"Sale Tax",         value:savings.filter(s=>s.type==="taxexempt").reduce((a,s)=>a+s.saved,0), color:"#ff9800"},
+    {name:"Returns",          value:savings.filter(s=>s.type==="return").reduce((a,s)=>a+s.saved,0), color:"#e91e63"},
   ].filter(x=>x.value>0);
+
   const totalSaved=savings.reduce((a,s)=>a+s.saved,0);
+
+  // ── Monthly bar chart — group real savings by month ───────────────
+  const monthlyMap={};
+  savings.forEach(s=>{
+    if(!s.date) return;
+    const d=new Date(s.date);
+    const key=d.toLocaleDateString("en-US",{month:"short",year:"2-digit"});
+    if(!monthlyMap[key]) monthlyMap[key]={month:key,shopping:0,saleTax:0,returns:0};
+    if(s.type==="return") monthlyMap[key].returns+=s.saved;
+    else if(s.type==="taxexempt") monthlyMap[key].saleTax+=s.saved;
+    else monthlyMap[key].shopping+=s.saved;
+  });
+  const monthlyData=Object.values(monthlyMap).sort((a,b)=>new Date("1 "+a.month)-new Date("1 "+b.month));
+
+  // ── Line chart — cumulative invested value over time ─────────────
+  const sortedSavings=[...savings].filter(s=>s.invested&&s.date).sort((a,b)=>new Date(a.date)-new Date(b.date));
+  let cumulative=0;
+  const lineData=[];
+  const seenMonths=new Set();
+  sortedSavings.forEach(s=>{
+    cumulative+=s.saved;
+    const d=new Date(s.date);
+    const key=d.toLocaleDateString("en-US",{month:"short"});
+    if(!seenMonths.has(key)){
+      seenMonths.add(key);
+      lineData.push({month:key,value:parseFloat(cumulative.toFixed(2))});
+    } else {
+      lineData[lineData.length-1].value=parseFloat(cumulative.toFixed(2));
+    }
+  });
+  if(lineData.length===0) lineData.push({month:"Now",value:0});
+
+  // ── Stats ────────────────────────────────────────────────────────
+  const months=Object.keys(monthlyMap).length||1;
+  const avgPerMonth=parseFloat((totalSaved/months).toFixed(2));
+  const bestMonth=Object.values(monthlyMap).sort((a,b)=>(b.shopping+b.saleTax+b.returns)-(a.shopping+a.saleTax+a.returns))[0];
+  const bestMonthTotal=bestMonth?parseFloat((bestMonth.shopping+bestMonth.saleTax+bestMonth.returns).toFixed(2)):0;
+
   return (
     <div style={{paddingBottom:90}}>
-      <div className="port-header"><div className="port-title">Portfolio</div><div className="port-sub">Investment growth over time</div><div className="port-big">${invested.toFixed(2)}</div><div className="port-change">↑ +$126.83 (27.1%) all time</div></div>
-      <div className="chart-card"><div className="chart-title">Portfolio Value ($)</div><ResponsiveContainer width="100%" height={160}><LineChart data={PORTFOLIO_HISTORY}><XAxis dataKey="month" tick={{fontSize:11,fill:"#aaa"}} axisLine={false} tickLine={false}/><YAxis hide/><Tooltip contentStyle={{borderRadius:10,border:"none",fontSize:12}} formatter={v=>[`$${v.toFixed(2)}`,"Value"]}/><Line type="monotone" dataKey="value" stroke="#d4af37" strokeWidth={2.5} dot={false}/></LineChart></ResponsiveContainer></div>
-      <div className="chart-card"><div className="chart-title">Monthly Savings by Category ($)</div><ResponsiveContainer width="100%" height={160}><BarChart data={MONTHLY_SAVINGS} barSize={8}><XAxis dataKey="month" tick={{fontSize:11,fill:"#aaa"}} axisLine={false} tickLine={false}/><YAxis hide/><Tooltip contentStyle={{borderRadius:10,border:"none",fontSize:12}}/><Bar dataKey="shopping" stackId="a" fill="#4caf50" name="Shopping Savings"/><Bar dataKey="saleTax" stackId="a" fill="#ff9800" name="Sale Tax"/><Bar dataKey="returns" stackId="a" fill="#e91e63" radius={[4,4,0,0]} name="Returns"/></BarChart></ResponsiveContainer></div>
-      <div className="chart-card"><div className="chart-title">Savings Breakdown</div><div className="pie-row"><PieChart width={120} height={120}><Pie data={byType} cx={55} cy={55} innerRadius={35} outerRadius={55} dataKey="value" paddingAngle={3}>{byType.map((e,i)=><Cell key={i} fill={e.color}/>)}</Pie></PieChart><div className="pie-legend">{byType.map((e,i)=><div key={i} className="pie-item"><div className="pie-dot" style={{background:e.color}}/><span>{e.name}: <strong>${e.value.toFixed(2)}</strong></span></div>)}</div></div></div>
-      <div className="stat-grid"><div className="stat-card"><div className="stat-label">Total Saved</div><div className="stat-value">${totalSaved.toFixed(2)}</div><div className="stat-sub">All time</div></div><div className="stat-card"><div className="stat-label">Avg / Month</div><div className="stat-value">${(totalSaved/7).toFixed(2)}</div><div className="stat-sub">Last 7 months</div></div><div className="stat-card"><div className="stat-label">Best Month</div><div className="stat-value">Apr</div><div className="stat-sub">$117.24 saved</div></div><div className="stat-card"><div className="stat-label">Streak</div><div className="stat-value">7 mo</div><div className="stat-sub">Consecutive saves</div></div></div>
+      <div className="port-header">
+        <div className="port-title">Portfolio</div>
+        <div className="port-sub">Your real savings & investments</div>
+        <div className="port-big">${invested.toFixed(2)}</div>
+        <div className="port-change">💰 Total invested from savings</div>
+      </div>
+
+      {/* Line chart — cumulative invested */}
+      <div className="chart-card">
+        <div className="chart-title">Cumulative Savings Invested ($)</div>
+        {lineData.length>1?
+          <ResponsiveContainer width="100%" height={160}>
+            <LineChart data={lineData}>
+              <XAxis dataKey="month" tick={{fontSize:11,fill:"#aaa"}} axisLine={false} tickLine={false}/>
+              <YAxis hide/>
+              <Tooltip contentStyle={{borderRadius:10,border:"none",fontSize:12}} formatter={v=>[`$${v.toFixed(2)}`,"Invested"]}/>
+              <Line type="monotone" dataKey="value" stroke="#d4af37" strokeWidth={2.5} dot={false}/>
+            </LineChart>
+          </ResponsiveContainer>:
+          <div style={{textAlign:"center",padding:"40px 0",color:"#bbb",fontSize:13}}>Log and invest savings to see growth chart</div>
+        }
+      </div>
+
+      {/* Bar chart — monthly by category */}
+      <div className="chart-card">
+        <div className="chart-title">Monthly Savings by Category ($)</div>
+        {monthlyData.length>0?
+          <ResponsiveContainer width="100%" height={160}>
+            <BarChart data={monthlyData} barSize={8}>
+              <XAxis dataKey="month" tick={{fontSize:11,fill:"#aaa"}} axisLine={false} tickLine={false}/>
+              <YAxis hide/>
+              <Tooltip contentStyle={{borderRadius:10,border:"none",fontSize:12}}/>
+              <Bar dataKey="shopping" stackId="a" fill="#4caf50" name="Shopping"/>
+              <Bar dataKey="saleTax" stackId="a" fill="#ff9800" name="Sale Tax"/>
+              <Bar dataKey="returns" stackId="a" fill="#e91e63" radius={[4,4,0,0]} name="Returns"/>
+            </BarChart>
+          </ResponsiveContainer>:
+          <div style={{textAlign:"center",padding:"40px 0",color:"#bbb",fontSize:13}}>No savings logged yet</div>
+        }
+      </div>
+
+      {/* Pie chart — category breakdown */}
+      <div className="chart-card">
+        <div className="chart-title">Savings Breakdown</div>
+        {byType.length>0?
+          <div className="pie-row">
+            <PieChart width={120} height={120}>
+              <Pie data={byType} cx={55} cy={55} innerRadius={35} outerRadius={55} dataKey="value" paddingAngle={3}>
+                {byType.map((e,i)=><Cell key={i} fill={e.color}/>)}
+              </Pie>
+            </PieChart>
+            <div className="pie-legend">
+              {byType.map((e,i)=><div key={i} className="pie-item"><div className="pie-dot" style={{background:e.color}}/><span>{e.name}: <strong>${e.value.toFixed(2)}</strong></span></div>)}
+            </div>
+          </div>:
+          <div style={{textAlign:"center",padding:"24px 0",color:"#bbb",fontSize:13}}>No savings logged yet</div>
+        }
+      </div>
+
+      {/* Stats */}
+      <div className="stat-grid">
+        <div className="stat-card"><div className="stat-label">Total Saved</div><div className="stat-value">${totalSaved.toFixed(2)}</div><div className="stat-sub">All time</div></div>
+        <div className="stat-card"><div className="stat-label">Avg / Month</div><div className="stat-value">${avgPerMonth.toFixed(2)}</div><div className="stat-sub">{months} month{months!==1?"s":""}</div></div>
+        <div className="stat-card"><div className="stat-label">Best Month</div><div className="stat-value">{bestMonth?bestMonth.month:"—"}</div><div className="stat-sub">{bestMonth?`$${bestMonthTotal.toFixed(2)} saved`:"No data yet"}</div></div>
+        <div className="stat-card"><div className="stat-label">Invested</div><div className="stat-value">${invested.toFixed(2)}</div><div className="stat-sub">{savings.filter(s=>s.invested).length} entries</div></div>
+      </div>
     </div>
   );
 }
