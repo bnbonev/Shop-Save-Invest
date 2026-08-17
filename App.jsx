@@ -749,9 +749,10 @@ function ManualModal({onClose,onSave,taxRate,stateCode}) {
     set(key,num.toFixed(2));
   };
 
-  // Location detection for tax rate
-  const detectLocation=()=>{
-    if(!navigator.geolocation){ alert("Location not available on this device."); return; }
+  // Auto-detect location when modal opens
+  useEffect(()=>{
+    if(stateCode) return; // already detected at app level
+    if(!navigator.geolocation) return;
     setDetecting(true);
     navigator.geolocation.getCurrentPosition(async pos=>{
       const code=await detectStateFromCoords(pos.coords.latitude,pos.coords.longitude);
@@ -760,8 +761,8 @@ function ManualModal({onClose,onSave,taxRate,stateCode}) {
         setDetectedRate(STATE_TAX_RATES[code]);
       }
       setDetecting(false);
-    },()=>{ setDetecting(false); alert("Could not detect location."); },{timeout:6000});
-  };
+    },()=>{ setDetecting(false); },{timeout:6000});
+  },[]);
 
   const effectiveTaxRate=detectedRate||taxRate;
   const effectiveState=detectedState||stateCode;
@@ -793,11 +794,11 @@ function ManualModal({onClose,onSave,taxRate,stateCode}) {
         <div style={{background:"#fff8e1",border:"1px solid #ffe082",borderRadius:12,padding:"12px 14px",marginBottom:16}}>
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
             <div style={{fontSize:11,fontWeight:700,color:"#e65100",letterSpacing:1}}>
-              🧾 SALE TAX SAVINGS {effectiveState?`· ${(effectiveTaxRate*100).toFixed(2)}% (${effectiveState})`:""}
+              🧾 SALE TAX SAVINGS
             </div>
-            <button onClick={detectLocation} disabled={detecting} style={{background:"none",border:"1px solid #ffe082",borderRadius:8,padding:"4px 8px",fontSize:11,color:"#e65100",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
-              {detecting?"📍 Detecting…":"📍 Detect"}
-            </button>
+            <div style={{fontSize:11,color:"#e65100",fontWeight:600}}>
+              {detecting?"📍 Detecting…":effectiveState?`📍 ${effectiveState} · ${(effectiveTaxRate*100).toFixed(2)}%`:"📍 No location"}
+            </div>
           </div>
           <div className="field" style={{marginBottom:10}}>
             <label>Total Purchase Amount ($)</label>
