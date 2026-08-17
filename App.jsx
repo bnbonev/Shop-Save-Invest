@@ -751,7 +751,7 @@ function ManualModal({onClose,onSave,taxRate,stateCode}) {
 
   // Auto-detect location when modal opens
   useEffect(()=>{
-    if(stateCode) return; // already detected at app level
+    if(stateCode){ setDetectedState(stateCode); setDetectedRate(taxRate); return; }
     if(!navigator.geolocation) return;
     setDetecting(true);
     navigator.geolocation.getCurrentPosition(async pos=>{
@@ -796,8 +796,18 @@ function ManualModal({onClose,onSave,taxRate,stateCode}) {
             <div style={{fontSize:11,fontWeight:700,color:"#e65100",letterSpacing:1}}>
               🧾 SALE TAX SAVINGS
             </div>
-            <div style={{fontSize:11,color:"#e65100",fontWeight:600}}>
-              {detecting?"📍 Detecting…":effectiveState?`📍 ${effectiveState} · ${(effectiveTaxRate*100).toFixed(2)}%`:"📍 No location"}
+            <div style={{display:"flex",alignItems:"center",gap:6}}>
+              {detecting?<span style={{fontSize:11,color:"#e65100"}}>📍 Detecting…</span>:
+              <select value={effectiveState||""} onChange={e=>{
+                const code=e.target.value;
+                setDetectedState(code);
+                setDetectedRate(STATE_TAX_RATES[code]||0);
+              }} style={{fontSize:11,color:"#e65100",fontWeight:600,border:"1px solid #ffe082",borderRadius:8,padding:"3px 6px",background:"#fff8e1",fontFamily:"'DM Sans',sans-serif"}}>
+                <option value="">📍 Select State</option>
+                {Object.entries(STATE_TAX_RATES).map(([code,rate])=>(
+                  <option key={code} value={code}>{code} — {(rate*100).toFixed(2)}%</option>
+                ))}
+              </select>}
             </div>
           </div>
           <div className="field" style={{marginBottom:10}}>
