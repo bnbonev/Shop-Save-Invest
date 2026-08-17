@@ -773,12 +773,24 @@ function ManualModal({onClose,onSave,taxRate,stateCode}) {
           <div className="field" style={{marginBottom:10}}>
             <label>Tax Rate (%)</label>
             <div style={{display:"flex",alignItems:"center",gap:8}}>
-              <input type="text" inputMode="decimal" placeholder="e.g. 7.5" value={f.taxRateInput}
-                onChange={e=>set("taxRateInput",e.target.value.replace(/[^0-9.]/g,""))}
-                style={{flex:1}}/>
+              <input
+                type="text"
+                inputMode="numeric"
+                placeholder="e.g. 7.5"
+                value={f.taxRateInput}
+                onChange={e=>{
+                  const raw=e.target.value.replace(/[^0-9]/g,"");
+                  if(!raw){ set("taxRateInput",""); return; }
+                  // Auto insert decimal: 75 → 7.5, 750 → 7.50
+                  const padded=raw.padStart(2,"0");
+                  const formatted=padded.slice(0,-1)+"."+padded.slice(-1);
+                  set("taxRateInput",formatted);
+                }}
+                style={{flex:1}}
+              />
               <span style={{fontSize:14,fontWeight:600,color:"#e65100",flexShrink:0}}>%</span>
             </div>
-            <div style={{fontSize:11,color:"#aaa",marginTop:4}}>Find this on your receipt — e.g. "Sales Tax 7.5%"</div>
+            <div style={{fontSize:11,color:"#aaa",marginTop:4}}>From your receipt — e.g. type 75 for 7.5%</div>
           </div>
 
           <div className="field" style={{marginBottom:10}}>
