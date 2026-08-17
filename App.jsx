@@ -647,6 +647,8 @@ function OnboardingScreen({onDone,onSetRisk}) {
 function LoginScreen({onLogin}) {
   const [tab,setTab]=useState("login");
   const [f,setF]=useState({name:"",email:"",password:""});
+  const [loading,setLoading]=useState(false);
+  const [error,setError]=useState(null);
   const set=(k,v)=>setF(p=>({...p,[k]:v}));
   const submit=async()=>{
     if(!f.email||!f.password) return;
