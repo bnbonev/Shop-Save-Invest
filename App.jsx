@@ -761,19 +761,32 @@ function ManualModal({onClose,onSave,taxRate,stateCode}) {
             <label>Tax Rate (%)</label>
             <div style={{display:"flex",alignItems:"center",gap:8}}>
               <input
-                type="number"
-                inputMode="decimal"
-                placeholder="7.5"
-                min="0"
-                max="20"
-                step="0.1"
+                type="text"
+                inputMode="numeric"
+                placeholder="0.0"
                 value={f.taxRateInput}
-                onChange={e=>set("taxRateInput",e.target.value)}
+                onKeyDown={e=>{
+                  if(e.key==="Backspace"){
+                    e.preventDefault();
+                    const digits=(f.taxRateInput.replace(/[^0-9]/g,"")).slice(0,-1);
+                    if(!digits){ set("taxRateInput",""); return; }
+                    const num=parseInt(digits.padStart(2,"0"),10);
+                    set("taxRateInput",(num/10).toFixed(1));
+                  }
+                }}
+                onChange={e=>{
+                  const newChar=e.target.value.replace(f.taxRateInput,"").replace(/[^0-9]/g,"");
+                  if(!newChar) return;
+                  const current=(f.taxRateInput.replace(/[^0-9]/g,""));
+                  const digits=current+newChar;
+                  const num=parseInt(digits.padStart(2,"0"),10);
+                  set("taxRateInput",(num/10).toFixed(1));
+                }}
                 style={{flex:1}}
               />
               <span style={{fontSize:14,fontWeight:600,color:"#e65100",flexShrink:0}}>%</span>
             </div>
-            <div style={{fontSize:11,color:"#aaa",marginTop:4}}>From your receipt — e.g. 7.5 or 10</div>
+            <div style={{fontSize:11,color:"#aaa",marginTop:4}}>Type 7, 5 → 7.5% · Type 7, 0 → 7.0% · Type 1, 0, 0 → 10.0%</div>
           </div>
 
           <div className="field" style={{marginBottom:10}}>
