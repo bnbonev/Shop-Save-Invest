@@ -50,24 +50,24 @@ async function getLatestPrice(symbol) {
 // Place a market order
 async function placeOrder(symbol, notional) {
   if (notional < 1) return null;
-  try {
-    const r = await fetch(`${ALPACA_BASE}/v2/orders`, {
-      method: "POST",
-      headers: alpacaHeaders,
-      mode: "cors",
-      body: JSON.stringify({
-        symbol,
-        notional: notional.toFixed(2),
-        side: "buy",
-        type: "market",
-        time_in_force: "day",
-      }),
-    });
-    return r.json();
-  } catch(e) {
-    console.error("Order error:", e);
-    return null;
+  const r = await fetch(`${ALPACA_BASE}/v2/orders`, {
+    method: "POST",
+    headers: alpacaHeaders,
+    mode: "cors",
+    body: JSON.stringify({
+      symbol,
+      notional: notional.toFixed(2),
+      side: "buy",
+      type: "market",
+      time_in_force: "day",
+    }),
+  });
+  const data = await r.json();
+  if (!r.ok) {
+    console.error(`Alpaca order failed for ${symbol}:`, data);
+    throw new Error(data?.message || `Order failed for ${symbol} (HTTP ${r.status})`);
   }
+  return data;
 }
 
 // Invest savings according to risk profile allocations
@@ -1355,7 +1355,6 @@ function InvestScreen({invested,riskId,onInvestAll,uninvested}) {
     if(uninvested<1) return;
     setInvesting(true);
     try {
-      await investSavings(uninvested,profile);
       if(onInvestAll) await onInvestAll(uninvested);
       showToast(`🚀 $${uninvested.toFixed(2)} invested!`);
       setTimeout(loadPositions,2000);
@@ -1542,7 +1541,20 @@ function HomeScreen({user,savings,setSavings,addSaving,handleInvestAll,invested,
   const showToast=msg=>{setToast(msg);setTimeout(()=>setToast(null),3000);};
   const handleAddSaving=async entry=>{ await addSaving(entry); showToast(`✓ $${entry.saved.toFixed(2)} saved from ${entry.store}!`); };
   const uninvested=savings.filter(s=>!s.invested).reduce((a,s)=>a+s.saved,0);
-  const handleInvest=()=>{ if(uninvested<=0) return; setInvesting(true); setTimeout(async()=>{await handleInvestAll(uninvested);setInvesting(false);showToast(`🚀 $${uninvested.toFixed(2)} invested!`);},1800); };
+  const handleInvest=()=>{
+    if(uninvested<=0) return;
+    setInvesting(true);
+    setTimeout(async()=>{
+      try {
+        await handleInvestAll(uninvested);
+        showToast(`🚀 $${uninvested.toFixed(2)} invested!`);
+      } catch(e) {
+        showToast(`⚠️ ${e.message||"Investment failed. Try again."}`);
+      } finally {
+        setInvesting(false);
+      }
+    },1800);
+  };
   const [openDrop,setOpenDrop]=useState(null);
   const toggleDrop=key=>setOpenDrop(o=>o===key?null:key);
   return (
@@ -1641,6 +1653,8 @@ export default function App() {
   };
 
   const handleInvestAll=async(amount)=>{
+    const profile=RISK_PROFILES.find(p=>p.id===riskId)||RISK_PROFILES[2];
+    await investSavings(amount,profile); // throws if it fails — caller shows the error
     if(user?.id) await supabase.from("savings").update({invested:true}).eq("user_id",user.id).eq("invested",false);
     setInvested(v=>v+amount);
     setSavings(s=>s.map(x=>({...x,invested:true})));
