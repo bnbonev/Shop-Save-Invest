@@ -1,4 +1,4 @@
-cimport { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect } from "react";
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm";
 
@@ -763,28 +763,27 @@ function ManualModal({onClose,onSave,taxRate,stateCode}) {
               <input
                 type="text"
                 inputMode="numeric"
-                placeholder="e.g. 75 for 7.5%"
+                placeholder="e.g. 75 → 7.5%"
                 value={f.taxRateInput}
                 onChange={e=>{
                   const digits=e.target.value.replace(/[^0-9]/g,"");
                   if(!digits){ set("taxRateInput",""); return; }
-                  const num=parseInt(digits,10);
-                  // 1-2 digits: treat as whole number (7 → 7, 10 → 10)
-                  // 3+ digits: insert decimal before last digit (75 → 7.5, 100 → 10.0)
-                  if(digits.length<=2){
-                    set("taxRateInput",String(num));
+                  // Need at least 2 digits to form X.Y format
+                  if(digits.length===1){
+                    // Single digit — show as X.0
+                    set("taxRateInput",digits+".0");
                   } else {
-                    const whole=digits.slice(0,-1);
+                    // 2+ digits — insert decimal before last digit, remove leading zeros
+                    const whole=String(parseInt(digits.slice(0,-1),10));
                     const dec=digits.slice(-1);
-                    const result=parseFloat(whole+"."+dec);
-                    set("taxRateInput",String(result));
+                    set("taxRateInput",whole+"."+dec);
                   }
                 }}
                 style={{flex:1}}
               />
               <span style={{fontSize:14,fontWeight:600,color:"#e65100",flexShrink:0}}>%</span>
             </div>
-            <div style={{fontSize:11,color:"#aaa",marginTop:4}}>Type 75 for 7.5% · Type 7 for 7% · Type 10 for 10%</div>
+            <div style={{fontSize:11,color:"#aaa",marginTop:4}}>Type 75 → 7.5% · Type 70 → 7.0% · Type 100 → 10.0%</div>
           </div>
 
           <div className="field" style={{marginBottom:10}}>
