@@ -716,7 +716,8 @@ function SavingsSummary({store,shoppingSavings,saleTax,netSavings}) {
 }
 
 function ManualModal({onClose,onSave,taxRate,stateCode}) {
-  const [f,setF]=useState({store:"",shopping:"",taxPaid:"",totalPurchase:"",taxRateInput:""});
+  const savedRate=localStorage.getItem("lastTaxRate")||"";
+  const [f,setF]=useState({store:"",shopping:"",taxPaid:"",totalPurchase:"",taxRateInput:savedRate});
   const set=(k,v)=>setF(p=>({...p,[k]:v}));
 
   const handleCurrencyInput=(key,val)=>{
@@ -818,6 +819,7 @@ function ManualModal({onClose,onSave,taxRate,stateCode}) {
 
         {net>0&&<SavingsSummary store={f.store} shoppingSavings={shopping} saleTax={saleTaxSavings} netSavings={net}/>}
         <button className="sub-btn" disabled={!ok} onClick={()=>{
+          if(f.taxRateInput) localStorage.setItem("lastTaxRate",f.taxRateInput);
           onSave({store:f.store,item:`${f.store} Savings`,type:"sale",saved:net,shoppingSavings:shopping,saleTax:saleTaxSavings});
           onClose();
         }}>Save ${net>0?net.toFixed(2):"0.00"} →</button>
