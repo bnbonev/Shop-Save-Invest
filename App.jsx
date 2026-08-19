@@ -7,67 +7,56 @@ const SUPABASE_URL = "https://bhykyksawrhmvlzacnjb.supabase.co";
 const SUPABASE_KEY = "sb_publishable_6-TPaxN2bgd8rNX2rcIzpg_CWdcqkjY";
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-// ── Alpaca Paper Trading ──────────────────────────────────────────
-const ALPACA_KEY    = "PK7JETS262GCU4VBEZBIQCSMJN";
-const ALPACA_SECRET = "6UhAQ2SQFnpBkHUuhk15pDw3HeYSDUqKmuQBmYDSkMWu";
-const ALPACA_BASE   = "https://paper-api.alpaca.markets";
-const ALPACA_DATA   = "https://data.alpaca.markets";
-
-const alpacaHeaders = {
-  "APCA-API-KEY-ID":     ALPACA_KEY,
-  "APCA-API-SECRET-KEY": ALPACA_SECRET,
-  "Content-Type":        "application/json",
-  "Access-Control-Allow-Origin": "*",
-};
+// ── Alpaca Paper Trading (via Vercel proxy — avoids browser CORS issues) ──
+async function alpacaFetch(path, options = {}) {
+  const r = await fetch(`/api/alpaca?path=${encodeURIComponent(path)}`, {
+    method: options.method || "GET",
+    headers: { "Content-Type": "application/json" },
+    body: options.body ? JSON.stringify(options.body) : undefined,
+  });
+  const data = await r.json();
+  if (!r.ok) {
+    console.error(`Alpaca proxy error for ${path}:`, data);
+    throw new Error(data?.message || data?.error || `Request failed (HTTP ${r.status})`);
+  }
+  return data;
+}
 
 // Fetch current positions
 async function getAlpacaPositions() {
   try {
-    const r = await fetch(`${ALPACA_BASE}/v2/positions`, {
-      method: "GET",
-      headers: alpacaHeaders,
-      mode: "cors",
-    });
-    if(!r.ok) throw new Error(`HTTP ${r.status}`);
-    return r.json();
+    const data = await alpacaFetch("v2/positions");
+    return Array.isArray(data) ? data : [];
   } catch(e) {
     console.error("Positions error:", e);
     return [];
   }
 }
 
-// Fetch latest price for a symbol
-async function getLatestPrice(symbol) {
+// Fetch recent orders
+async function getAlpacaOrders() {
   try {
-    const r = await fetch(`${ALPACA_DATA}/v2/stocks/${symbol}/quotes/latest`, {
-      headers: alpacaHeaders, mode: "cors"
-    });
-    const d = await r.json();
-    return d?.quote?.ap || d?.quote?.bp || null;
-  } catch(e) { return null; }
+    const data = await alpacaFetch("v2/orders?status=all&limit=10");
+    return Array.isArray(data) ? data : [];
+  } catch(e) {
+    console.error("Orders error:", e);
+    return [];
+  }
 }
 
 // Place a market order
 async function placeOrder(symbol, notional) {
   if (notional < 1) return null;
-  const r = await fetch(`${ALPACA_BASE}/v2/orders`, {
+  return alpacaFetch("v2/orders", {
     method: "POST",
-    headers: alpacaHeaders,
-    mode: "cors",
-    body: JSON.stringify({
+    body: {
       symbol,
       notional: notional.toFixed(2),
       side: "buy",
       type: "market",
       time_in_force: "day",
-    }),
+    },
   });
-  const data = await r.json();
-  if (!r.ok) {
-    console.error(`Alpaca order failed for ${symbol}:`, data);
-    throw new Error(data?.message || `Order failed for ${symbol} (HTTP ${r.status})`);
-  }
-  return data;
 }
 
 // Invest savings according to risk profile allocations
@@ -1319,30 +1308,9 @@ function InvestScreen({invested,riskId,onInvestAll,uninvested}) {
   const loadPositions=async()=>{
     setLoading(true);
     try {
-      // Load positions
-      const r = await fetch(`${ALPACA_BASE}/v2/positions`, {
-        method: "GET",
-        headers: {
-          "APCA-API-KEY-ID": ALPACA_KEY,
-          "APCA-API-SECRET-KEY": ALPACA_SECRET,
-        },
-      });
-      if(r.ok) {
-        const pos = await r.json();
-        setPositions(Array.isArray(pos)?pos:[]);
-      }
-      // Load recent orders to show pending trades
-      const r2 = await fetch(`${ALPACA_BASE}/v2/orders?status=all&limit=10`, {
-        method: "GET",
-        headers: {
-          "APCA-API-KEY-ID": ALPACA_KEY,
-          "APCA-API-SECRET-KEY": ALPACA_SECRET,
-        },
-      });
-      if(r2.ok) {
-        const ord = await r2.json();
-        setOrders(Array.isArray(ord)?ord:[]);
-      }
+      const [pos,ord]=await Promise.all([getAlpacaPositions(),getAlpacaOrders()]);
+      setPositions(pos);
+      setOrders(ord);
     } catch(e){
       console.error("Alpaca error:",e);
     }
