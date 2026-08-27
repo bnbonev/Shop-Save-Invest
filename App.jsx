@@ -59,15 +59,25 @@ async function placeOrder(symbol, notional) {
   });
 }
 
-// Invest savings according to risk profile allocations
+// Invest savings according to risk profile allocations.
+// Any "CASH" portion of a profile is routed to the Fixed/cash reserve —
+// it stays as real cash in the Alpaca account (not bought into a ticker),
+// and is reported back to the caller so the app can show it under "Fixed".
 async function investSavings(amount, profile) {
   const results = [];
+  let cashReserve = 0;
   for (const alloc of profile.allocations) {
-    if (alloc.ticker === "CASH") continue; // skip cash allocation
+    if (alloc.ticker === "CASH") {
+      cashReserve += parseFloat(((amount * alloc.pct) / 100).toFixed(2));
+      continue;
+    }
     const notional = parseFloat(((amount * alloc.pct) / 100).toFixed(2));
     if (notional >= 1) {
       const order = await placeOrder(alloc.ticker, notional);
       results.push({ ticker: alloc.ticker, notional, order });
+    }
+  }
+  return { orders: results, cashReserve };
     }
   }
   return results;
@@ -90,16 +100,6 @@ const STATE_TAX_RATES = {
   SC:0.06,SD:0.045,TN:0.07,TX:0.0625,UT:0.0485,VT:0.06,VA:0.043,WA:0.065,
   WV:0.06,WI:0.05,WY:0.04,
 };
-const RETURN_KEYWORDS = ["return","refund","credit","reversal","chargeback","rebate"];
-const KNOWN_RETAILERS = ["amazon","target","walmart","costco","best buy","apple","nike","zara","gap",
-  "nordstrom","kohls","wayfair","chewy","ebay","etsy","home depot","lowes","tj maxx","sephora","ulta","cvs","walgreens"];
-const MOCK_PLAID = [
-  {id:"p1",date:"2026-04-07",description:"AMAZON REFUND - ORDER #114-5678",amount:29.99},
-  {id:"p2",date:"2026-04-06",description:"TARGET RETURN CREDIT",amount:14.49},
-  {id:"p4",date:"2026-04-04",description:"NORDSTROM REFUND",amount:89.00},
-  {id:"p6",date:"2026-04-03",description:"BEST BUY RETURN CREDIT",amount:44.99},
-  {id:"p8",date:"2026-04-01",description:"CHEWY.COM REFUND",amount:19.95},
-];
 const MOCK_GMAIL = [
   {id:"m1",subject:"Your Amazon order #113-4521 confirmation",from:"auto-confirm@amazon.com",
    body:"Amazon Order Confirmation\nOrder #113-4521\n\nKindle Paperwhite Case\nList Price: $19.99\nYou Pay: $12.99\nYou saved: $7.00 (35% off)\n\nOrder Total: $12.99\nYou saved $7.00 on this order"},
@@ -116,23 +116,6 @@ async function detectStateFromCoords(lat,lon) {
     const d = await r.json();
     return d?.address?.["ISO3166-2-lvl4"]?.replace("US-","") || null;
   } catch { return null; }
-}
-function isReturn(desc,amt) {
-  const d=desc.toLowerCase();
-  return amt>0 && (RETURN_KEYWORDS.some(k=>d.includes(k))||KNOWN_RETAILERS.some(r=>d.includes(r)));
-}
-function parseCSV(text) {
-  const lines=text.trim().split("\n").filter(Boolean);
-  if(lines.length<2) return [];
-  const h=lines[0].toLowerCase().split(",").map(x=>x.trim().replace(/"/g,""));
-  const di=h.findIndex(x=>x.includes("date"));
-  const xi=h.findIndex(x=>x.includes("desc")||x.includes("memo")||x.includes("name"));
-  const ai=h.findIndex(x=>x.includes("amount")||x.includes("credit"));
-  if(xi===-1||ai===-1) return [];
-  return lines.slice(1).map(l=>{
-    const c=l.split(",").map(x=>x.trim().replace(/"/g,""));
-    return {date:c[di]||"",description:c[xi]||"",amount:parseFloat(c[ai]?.replace(/[$,]/g,"")||"0")};
-  }).filter(t=>t.description);
 }
 function storeIcon(s) {
   const x=s.toLowerCase();
@@ -575,8 +558,8 @@ const RISK_PROFILES = [
 // ── Onboarding Data ───────────────────────────────────────────────
 const OB_STEPS = [
   {icon:"💰",title:<>Turn shopping into <span>wealth</span></>,desc:"Shop, Save, Invest automatically captures money you save while shopping and puts it to work in your investment portfolio.",features:[{icon:"🛍️",t:"Shopping & Sale Tax Savings",s:"Capture sale discounts & tax-exempt items"},{icon:"🧾",t:"Sale Tax",s:"Save on food, water & prescriptions"},{icon:"🔄",t:"Item Return Savings",s:"Invest refunds before you spend them"}]},
-  {icon:"📸",title:<>Three ways to <span>log savings</span></>,desc:"Scan paper receipts, paste digital receipts, or enter savings manually.",features:[{icon:"📸",t:"Scan Receipts",s:"Powered by Mindee OCR"},{icon:"✨",t:"Receipt Parsing",s:"Built-in parser, any format"},{icon:"📬",t:"Gmail Auto-Fetch",s:"Pull receipts from your inbox"}]},
-  {icon:"🔍",title:<>Automatic <span>return detection</span></>,desc:"Connect your bank via Plaid and Shop, Save, Invest will automatically spot return credits.",features:[{icon:"🏦",t:"Plaid Integration",s:"Securely monitor your cards"},{icon:"📄",t:"CSV Upload",s:"Import bank statements"},{icon:"🔔",t:"Confirm Before Investing",s:"You always approve first"}]},
+  {icon:"📸",title:<>Two ways to <span>log savings</span></>,desc:"Paste digital receipts or enter savings manually — whichever is faster for you.",features:[{icon:"✨",t:"Digital Receipt",s:"Paste text or fetch from Gmail"},{icon:"✏️",t:"Manual Entry",s:"Quick entry with auto-calculated tax savings"},{icon:"🧾",t:"Sale Tax Included",s:"Every entry captures tax savings too"}]},
+  {icon:"🔄",title:<>Don't forget <span>returns</span></>,desc:"Log item returns and invest the refund before you spend it elsewhere.",features:[{icon:"✨",t:"Digital Return Receipt",s:"Paste confirmation or fetch from Gmail"},{icon:"✏️",t:"Manual Entry",s:"Enter store, item & refund amount"},{icon:"🚀",t:"Invest Instantly",s:"Refunds go straight into your portfolio"}]},
   {icon:"📈",title:<>Watch your money <span>grow</span></>,desc:"Every dollar saved gets invested into diversified ETFs.",features:[{icon:"📊",t:"Portfolio Analytics",s:"Track growth over time"},{icon:"💼",t:"Diversified ETFs",s:"VOO, IEMG & more"},{icon:"🚀",t:"One-tap Investing",s:"Sweep savings instantly"}]},
   {icon:"⚖️",title:<>Choose your <span>risk profile</span></>,desc:"Pick how your savings get invested. You can change this anytime in Settings.",riskStep:true},
 ];
@@ -636,11 +619,13 @@ function OnboardingScreen({onDone,onSetRisk}) {
 
 // ── Screens ───────────────────────────────────────────────────────
 function LoginScreen({onLogin}) {
-  const [tab,setTab]=useState("login");
+  const [tab,setTab]=useState("login"); // "login" | "signup" | "forgot"
   const [f,setF]=useState({name:"",email:"",password:""});
   const [loading,setLoading]=useState(false);
   const [error,setError]=useState(null);
+  const [resetSent,setResetSent]=useState(false);
   const set=(k,v)=>setF(p=>({...p,[k]:v}));
+
   const submit=async()=>{
     if(!f.email||!f.password) return;
     setLoading(true); setError(null);
@@ -664,24 +649,69 @@ function LoginScreen({onLogin}) {
       setLoading(false);
     }
   };
+
+  const sendReset=async()=>{
+    if(!f.email) return;
+    setLoading(true); setError(null);
+    try {
+      const {error}=await supabase.auth.resetPasswordForEmail(f.email, {
+        redirectTo: window.location.origin,
+      });
+      if(error) throw error;
+      setResetSent(true);
+    } catch(e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const switchTab=t=>{ setTab(t); setError(null); setResetSent(false); };
+
   return (
     <div className="auth-screen">
       <div className="auth-logo">Shop, Save, <span>Invest</span></div>
       <div className="auth-tagline">Shop smarter. Save automatically. Invest the difference.</div>
       <div className="auth-card">
-        <div className="auth-tabs">
-          <div className={`auth-tab${tab==="login"?" active":""}`} onClick={()=>setTab("login")}>Sign In</div>
-          <div className={`auth-tab${tab==="signup"?" active":""}`} onClick={()=>setTab("signup")}>Create Account</div>
-        </div>
-        {tab==="signup"&&<div className="auth-field"><label>Full Name</label><input placeholder="Jane Smith" value={f.name} onChange={e=>set("name",e.target.value)}/></div>}
-        <div className="auth-field"><label>Email</label><input type="email" placeholder="you@email.com" value={f.email} onChange={e=>set("email",e.target.value)}/></div>
-        <div className="auth-field"><label>Password</label><input type="password" placeholder="••••••••" value={f.password} onChange={e=>set("password",e.target.value)}/></div>
-        {error&&<div style={{background:"#fce4ec",border:"1px solid #f48fb1",borderRadius:10,padding:"10px 14px",fontSize:12,color:"#880e4f",marginBottom:12}}>{error}</div>}
-        <button className="auth-btn" onClick={submit} disabled={loading}>
-          {loading?"Processing…":tab==="login"?"Sign In →":"Create Account →"}
-        </button>
-        <div className="auth-hint">{tab==="login"?<>No account? <span onClick={()=>setTab("signup")}>Sign up free</span></>:<>Already have one? <span onClick={()=>setTab("login")}>Sign in</span></>}</div>
-        <div style={{marginTop:16,textAlign:"center"}}><button style={{background:"none",border:"1px solid #e8e4dc",borderRadius:10,padding:"10px 20px",fontSize:13,color:"#888",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}} onClick={()=>onLogin({name:"Demo User",email:"demo@shopsaveinvest.app"}, false)}>👀 Try Demo</button></div>
+        {tab!=="forgot"&&<div className="auth-tabs">
+          <div className={`auth-tab${tab==="login"?" active":""}`} onClick={()=>switchTab("login")}>Sign In</div>
+          <div className={`auth-tab${tab==="signup"?" active":""}`} onClick={()=>switchTab("signup")}>Create Account</div>
+        </div>}
+
+        {tab==="forgot"?(
+          resetSent?(
+            <div style={{textAlign:"center",padding:"12px 0 4px"}}>
+              <div style={{fontSize:36,marginBottom:10}}>📬</div>
+              <div style={{fontSize:15,fontWeight:600,color:"#1a1a2e",marginBottom:6}}>Check your email</div>
+              <div style={{fontSize:13,color:"#888",marginBottom:20,lineHeight:1.5}}>We sent a password reset link to<br/><strong>{f.email}</strong></div>
+              <button className="auth-btn" onClick={()=>switchTab("login")}>Back to Sign In</button>
+            </div>
+          ):(
+            <>
+              <div style={{fontSize:15,fontWeight:600,color:"#1a1a2e",marginBottom:6}}>Reset your password</div>
+              <div style={{fontSize:12,color:"#888",marginBottom:16}}>Enter your email and we'll send you a reset link.</div>
+              <div className="auth-field"><label>Email</label><input type="email" placeholder="you@email.com" value={f.email} onChange={e=>set("email",e.target.value)}/></div>
+              {error&&<div style={{background:"#fce4ec",border:"1px solid #f48fb1",borderRadius:10,padding:"10px 14px",fontSize:12,color:"#880e4f",marginBottom:12}}>{error}</div>}
+              <button className="auth-btn" onClick={sendReset} disabled={loading||!f.email}>
+                {loading?"Sending…":"Send Reset Link →"}
+              </button>
+              <div className="auth-hint"><span onClick={()=>switchTab("login")}>← Back to Sign In</span></div>
+            </>
+          )
+        ):(
+          <>
+            {tab==="signup"&&<div className="auth-field"><label>Full Name</label><input placeholder="Jane Smith" value={f.name} onChange={e=>set("name",e.target.value)}/></div>}
+            <div className="auth-field"><label>Email</label><input type="email" placeholder="you@email.com" value={f.email} onChange={e=>set("email",e.target.value)}/></div>
+            <div className="auth-field"><label>Password</label><input type="password" placeholder="••••••••" value={f.password} onChange={e=>set("password",e.target.value)}/></div>
+            {tab==="login"&&<div style={{textAlign:"right",marginTop:-10,marginBottom:16}}><span onClick={()=>switchTab("forgot")} style={{fontSize:12,color:"#d4af37",cursor:"pointer",fontWeight:600}}>Forgot password?</span></div>}
+            {error&&<div style={{background:"#fce4ec",border:"1px solid #f48fb1",borderRadius:10,padding:"10px 14px",fontSize:12,color:"#880e4f",marginBottom:12}}>{error}</div>}
+            <button className="auth-btn" onClick={submit} disabled={loading}>
+              {loading?"Processing…":tab==="login"?"Sign In →":"Create Account →"}
+            </button>
+            <div className="auth-hint">{tab==="login"?<>No account? <span onClick={()=>switchTab("signup")}>Sign up free</span></>:<>Already have one? <span onClick={()=>switchTab("login")}>Sign in</span></>}</div>
+            <div style={{marginTop:16,textAlign:"center"}}><button style={{background:"none",border:"1px solid #e8e4dc",borderRadius:10,padding:"10px 20px",fontSize:13,color:"#888",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}} onClick={()=>onLogin({name:"Demo User",email:"demo@shopsaveinvest.app"}, false)}>👀 Try Demo</button></div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -812,50 +842,6 @@ function ManualModal({onClose,onSave,taxRate,stateCode}) {
           onSave({store:f.store,item:`${f.store} Savings`,type:"sale",saved:net,shoppingSavings:shopping,saleTax:saleTaxSavings});
           onClose();
         }}>Save ${net>0?net.toFixed(2):"0.00"} →</button>
-      </div>
-    </div>
-  );
-}
-
-function ScanModal({onClose,onSave}) {
-  const [st,setSt]=useState("idle");const [res,setRes]=useState(null);const [mode,setMode]=useState("camera");
-  const imgRef=useRef();const upRef=useRef();
-  const process=async file=>{
-    if(!file) return; setSt("processing");
-    await new Promise(r=>setTimeout(r,2200));
-    // Mock Mindee result — in production Mindee returns itemized data
-    setRes({store:"Kroger",shoppingSavings:6.69,totalPurchase:42.30,taxPaid:1.85,saleTax:1.11,netSavings:7.80,type:"sale"});
-    setSt("done");
-  };
-  return (
-    <div className="overlay" onClick={e=>e.target===e.currentTarget&&onClose()}>
-      <div className="modal">
-        <div className="modal-handle"/><div className="modal-title">Scan Receipt</div>
-        {st==="idle"&&<>
-          <div className="type-sel">
-            <div className={`type-opt${mode==="camera"?" active":""}`} onClick={()=>setMode("camera")}>📷 Camera</div>
-            <div className={`type-opt${mode==="upload"?" active":""}`} onClick={()=>setMode("upload")}>🖼️ Upload</div>
-          </div><div className="upload-zone" onClick={()=>(mode==="camera"?imgRef:upRef).current.click()}>
-            <div style={{fontSize:36,marginBottom:8}}>{mode==="camera"?"📸":"🖼️"}</div>
-            <div style={{fontSize:14,color:"#555",fontWeight:500}}>{mode==="camera"?"Tap to open camera":"Tap to choose image"}</div>
-            <div style={{fontSize:12,color:"#bbb",marginTop:4}}>Powered by Mindee OCR</div>
-          </div>
-          <input ref={imgRef} type="file" accept="image/*" capture="environment" style={{display:"none"}} onChange={e=>process(e.target.files[0])}/>
-          <input ref={upRef} type="file" accept="image/*" style={{display:"none"}} onChange={e=>process(e.target.files[0])}/>
-        </>}
-        {st==="processing"&&<div style={{textAlign:"center",padding:"32px 0"}}><div className="spinner" style={{margin:"0 auto 16px",width:32,height:32,borderWidth:3}}/><div style={{fontSize:14,color:"#888"}}>Scanning with Mindee OCR…</div></div>}
-        {st==="done"&&res&&<>
-          <SavingsSummary store={res.store} shoppingSavings={res.shoppingSavings} saleTax={res.saleTax} netSavings={res.netSavings}/>
-          {res.totalPurchase>0&&<div style={{background:"#fff8e1",border:"1px solid #ffe082",borderRadius:10,padding:"10px 14px",marginBottom:12,fontSize:12,color:"#5d4037"}}>
-            <div style={{fontWeight:700,color:"#e65100",marginBottom:6}}>🧾 Tax Breakdown</div>
-            <div style={{display:"flex",justifyContent:"space-between",marginBottom:2}}><span>Subtotal</span><span>${res.totalPurchase.toFixed(2)}</span></div>
-            <div style={{display:"flex",justifyContent:"space-between",marginBottom:2}}><span>Tax paid</span><span>${res.taxPaid.toFixed(2)}</span></div>
-            <div style={{display:"flex",justifyContent:"space-between",fontWeight:700,color:"#e65100"}}><span>Tax savings (exempt items)</span><span>+${res.saleTax.toFixed(2)}</span></div>
-          </div>}
-          <button className="sub-btn" onClick={()=>{onSave({store:res.store,item:`${res.store} Savings`,type:res.type,saved:res.netSavings,shoppingSavings:res.shoppingSavings,saleTax:res.saleTax});onClose();}}>
-            Save ${res.netSavings.toFixed(2)} →
-          </button>
-        </>}
       </div>
     </div>
   );
@@ -1012,44 +998,6 @@ function ReturnModal({onClose,onSave}) {
 }
 
 // ── Return Scan Modal ─────────────────────────────────────────────
-function ReturnScanModal({onClose,onSave}) {
-  const [st,setSt]=useState("idle");const [res,setRes]=useState(null);const [mode,setMode]=useState("camera");
-  const imgRef=useRef();const upRef=useRef();
-  const process=async file=>{
-    if(!file) return; setSt("processing");
-    await new Promise(r=>setTimeout(r,2200));
-    setRes({store:"Amazon",item:"Wireless Headphones",amount:49.99});
-    setSt("done");
-  };
-  return (
-    <div className="overlay" onClick={e=>e.target===e.currentTarget&&onClose()}>
-      <div className="modal">
-        <div className="modal-handle"/><div className="modal-title">Scan Return Receipt</div>
-        {st==="idle"&&<>
-          <div className="type-sel">
-            <div className={`type-opt${mode==="camera"?" active":""}`} onClick={()=>setMode("camera")}>📷 Camera</div>
-            <div className={`type-opt${mode==="upload"?" active":""}`} onClick={()=>setMode("upload")}>🖼️ Upload</div>
-          </div>
-          <div className="upload-zone" onClick={()=>(mode==="camera"?imgRef:upRef).current.click()}>
-            <div style={{fontSize:36,marginBottom:8}}>{mode==="camera"?"📸":"🖼️"}</div>
-            <div style={{fontSize:14,color:"#555",fontWeight:500}}>{mode==="camera"?"Tap to scan return receipt":"Tap to upload receipt image"}</div>
-            <div style={{fontSize:12,color:"#bbb",marginTop:4}}>Powered by Mindee OCR</div>
-          </div>
-          <input ref={imgRef} type="file" accept="image/*" capture="environment" style={{display:"none"}} onChange={e=>process(e.target.files[0])}/>
-          <input ref={upRef} type="file" accept="image/*" style={{display:"none"}} onChange={e=>process(e.target.files[0])}/>
-        </>}
-        {st==="processing"&&<div style={{textAlign:"center",padding:"32px 0"}}><div className="spinner" style={{margin:"0 auto 16px",width:32,height:32,borderWidth:3}}/><div style={{fontSize:14,color:"#888"}}>Scanning return receipt…</div></div>}
-        {st==="done"&&res&&<>
-          <ReturnSummary store={res.store} item={res.item} amount={res.amount}/>
-          <button className="sub-btn" onClick={()=>{onSave({store:res.store,item:`${res.item} (Return)`,type:"return",saved:res.amount});onClose();}}>
-            Invest ${res.amount.toFixed(2)} →
-          </button>
-        </>}
-      </div>
-    </div>
-  );
-}
-
 // ── Return Digital Modal ──────────────────────────────────────────
 function ReturnEmailModal({onClose,onSave}) {
   const [st,setSt]=useState("idle");
@@ -1112,77 +1060,16 @@ function ReturnEmailModal({onClose,onSave}) {
   );
 }
 
-function ConfirmInvestModal({item,onConfirm,onCancel}) {
-  const [investing,setInvesting]=useState(false);const [done,setDone]=useState(false);
-  const match=KNOWN_RETAILERS.find(r=>item.description.toLowerCase().includes(r));
-  const store=match?match.charAt(0).toUpperCase()+match.slice(1):"Bank Card";
-  const confirm=()=>{ setInvesting(true); setTimeout(()=>{ setDone(true); setTimeout(()=>onConfirm({store,item:`${item.description} (Auto-Detected)`,type:"return",saved:item.amount}),900); },1400); };
-  return (
-    <div className="overlay" onClick={e=>e.target===e.currentTarget&&!investing&&onCancel()}>
-      <div className="modal">
-        <div className="modal-handle"/><div className="modal-title">Confirm Investment</div>
-        <div style={{background:"#fce4ec",border:"1px solid #f48fb1",borderRadius:14,padding:"16px",marginBottom:20}}>
-          <div style={{fontSize:11,fontWeight:700,color:"#ad1457",letterSpacing:1,marginBottom:10}}>🔄 RETURN DETECTED</div>
-          <div style={{display:"flex",justifyContent:"space-between",fontSize:13,color:"#333",marginBottom:6}}><span>Transaction</span><span style={{fontWeight:600,maxWidth:180,textAlign:"right",fontSize:12}}>{item.description}</span></div>
-          <div style={{display:"flex",justifyContent:"space-between",fontSize:13,color:"#333",marginBottom:6}}><span>Date</span><span>{item.date}</span></div>
-          <div style={{display:"flex",justifyContent:"space-between",fontSize:13,color:"#333",marginBottom:6}}><span>Source</span><span style={{background:"#fff",borderRadius:8,padding:"2px 8px",fontSize:11,fontWeight:600,color:"#ad1457"}}>{item.source==="plaid"?"via Plaid":"via CSV"}</span></div>
-          <div style={{borderTop:"1px solid #f48fb1",marginTop:10,paddingTop:10,display:"flex",justifyContent:"space-between",alignItems:"center"}}><span style={{fontSize:13,color:"#880e4f",fontWeight:600}}>Refund Amount</span><span style={{fontFamily:"'Playfair Display',serif",fontSize:22,fontWeight:700,color:"#ad1457"}}>${item.amount.toFixed(2)}</span></div>
-        </div>
-        <div style={{background:"#f7f5f0",borderRadius:12,padding:"12px 14px",marginBottom:20,display:"flex",alignItems:"center",gap:12}}>
-          <div style={{width:36,height:36,background:"#1a1a2e",borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>📈</div>
-          <div><div style={{fontSize:13,fontWeight:600,color:"#1a1a2e"}}>Invest into your portfolio</div><div style={{fontSize:11,color:"#aaa",marginTop:2}}>70% VOO · 30% IEMG · via Alpaca</div></div>
-        </div>
-        {!done?<>
-          <button className="sub-btn" onClick={confirm} disabled={investing} style={{background:"#ad1457",marginBottom:10}}>
-            {investing?<><span className="spinner" style={{borderColor:"rgba(255,255,255,0.3)",borderTopColor:"#fff"}}/>Investing…</>:`✓ Confirm — Invest $${item.amount.toFixed(2)}`}
-          </button>
-          <button onClick={onCancel} disabled={investing} style={{width:"100%",background:"none",border:"1.5px solid #e8e4dc",borderRadius:14,padding:"14px",fontFamily:"'DM Sans',sans-serif",fontSize:14,color:"#888",cursor:"pointer"}}>Not now — skip</button>
-        </>:<div style={{textAlign:"center",padding:"16px 0"}}><div style={{fontSize:40,marginBottom:8}}>🚀</div><div style={{fontFamily:"'Playfair Display',serif",fontSize:20,fontWeight:600,color:"#1a1a2e",marginBottom:4}}>${item.amount.toFixed(2)} invested!</div><div style={{fontSize:13,color:"#aaa"}}>Added to your portfolio</div></div>}
-      </div>
-    </div>
-  );
-}
-
-function AutoDetectPanel({onAccept}) {
-  const [open,setOpen]=useState(true);const [plaid,setPlaid]=useState("idle");
-  const [pending,setPending]=useState([]);const [dismissed,setDismissed]=useState([]);
-  const [confirming,setConfirming]=useState(null);
-  const csvRef=useRef();
-  const visible=pending.filter(p=>!dismissed.includes(p.id));
-  const connectPlaid=()=>{ setPlaid("connecting"); setTimeout(()=>{ const found=MOCK_PLAID.filter(t=>isReturn(t.description,t.amount)).map(t=>({...t,source:"plaid"})); setPending(p=>{const ids=new Set(p.map(x=>x.id));return [...p,...found.filter(f=>!ids.has(f.id))];});setPlaid("connected");},1800); };
-  const handleCSV=file=>{ if(!file) return; const r=new FileReader(); r.onload=e=>{ const found=parseCSV(e.target.result).filter(t=>isReturn(t.description,t.amount)).map((t,i)=>({...t,id:`csv_${i}_${Date.now()}`,source:"csv"})); setPending(p=>[...p,...found]); }; r.readAsText(file); };
-  const handleConfirmed=entry=>{ onAccept(entry); setDismissed(d=>[...d,confirming.id]); setConfirming(null); };
-  return (
-    <>
-      <div className="detect-panel">
-        <div className="detect-hdr" onClick={()=>setOpen(o=>!o)}>
-          <div className="detect-hdr-left"><span style={{fontSize:20}}>🔍</span><div><div className="detect-title">Auto-Detect Returns</div><div className="detect-sub">{plaid==="connected"?"Bank & cards connected":"Connect bank/card or upload CSV"}</div></div></div>
-          <div style={{display:"flex",alignItems:"center",gap:8}}>{visible.length>0&&<span className="detect-badge">{visible.length}</span>}<span style={{color:"#ccc",fontSize:12}}>{open?"▲":"▼"}</span></div>
-        </div>
-        {open&&<div className="detect-body">
-          <button className={`plaid-btn${plaid==="connected"?" conn":""}`} onClick={plaid==="idle"?connectPlaid:undefined} disabled={plaid==="connecting"}>
-            {plaid==="idle"&&<><span>🏦</span>Connect Bank &amp; Cards via Plaid</>}
-            {plaid==="connecting"&&<><span className="spinner" style={{width:14,height:14,borderColor:"rgba(255,255,255,0.3)",borderTopColor:"#fff"}}/>Connecting…</>}
-            {plaid==="connected"&&<><span>✓</span>Bank &amp; Cards Connected</>}
-          </button>
-          <div className="csv-zone" onClick={()=>csvRef.current.click()}><span>📄</span>Upload bank / card statement CSV</div>
-          <input ref={csvRef} type="file" accept=".csv" style={{display:"none"}} onChange={e=>handleCSV(e.target.files[0])}/>
-          {visible.length>0&&<><div className="pending-lbl">🔔 RETURNS DETECTED — TAP TO REVIEW</div>{visible.map(item=><div className="pend-row" key={item.id}><div className="pend-dot"/><div className="pend-info"><div className="pend-desc">{item.description}</div><div className="pend-date">{item.date}</div><div className="src-tag">{item.source==="plaid"?"via Plaid":"via CSV"}</div></div><div className="pend-right"><div className="pend-amt">+${item.amount.toFixed(2)}</div><div className="pend-acts"><button className="pa-yes" onClick={()=>setConfirming(item)}>Review</button><button className="pa-no" onClick={()=>setDismissed(d=>[...d,item.id])}>Skip</button></div></div></div>)}</>}
-          {plaid==="connected"&&visible.length===0&&<div style={{marginTop:12,fontSize:12,color:"#aaa",textAlign:"center"}}>✓ No new returns detected</div>}
-        </div>}
-      </div>
-      {confirming&&<ConfirmInvestModal item={confirming} onConfirm={handleConfirmed} onCancel={()=>{ setDismissed(d=>[...d,confirming.id]);setConfirming(null); }}/>}
-    </>
-  );
-}
-
 // ── Portfolio Screen ──────────────────────────────────────────────
 function PortfolioScreen({savings,invested}) {
   // ── Pie chart — real category breakdown ──────────────────────────
+  const shoppingTotal=savings.filter(s=>s.type!=="return").reduce((a,s)=>a+(Number(s.shoppingSavings)||(s.saleTax?0:s.saved)),0);
+  const saleTaxTotal=savings.filter(s=>s.type!=="return").reduce((a,s)=>a+(Number(s.saleTax)||0),0);
+  const returnsTotal=savings.filter(s=>s.type==="return").reduce((a,s)=>a+s.saved,0);
   const byType=[
-    {name:"Shopping Savings", value:savings.filter(s=>s.type==="sale"||s.type==="bogo"||s.type==="manual").reduce((a,s)=>a+s.saved,0), color:"#4caf50"},
-    {name:"Sale Tax",         value:savings.filter(s=>s.type==="taxexempt").reduce((a,s)=>a+s.saved,0), color:"#ff9800"},
-    {name:"Returns",          value:savings.filter(s=>s.type==="return").reduce((a,s)=>a+s.saved,0), color:"#e91e63"},
+    {name:"Shopping Savings", value:shoppingTotal, color:"#4caf50"},
+    {name:"Sale Tax",         value:saleTaxTotal,  color:"#ff9800"},
+    {name:"Returns",          value:returnsTotal,  color:"#e91e63"},
   ].filter(x=>x.value>0);
 
   const totalSaved=savings.reduce((a,s)=>a+s.saved,0);
@@ -1194,9 +1081,14 @@ function PortfolioScreen({savings,invested}) {
     const d=new Date(s.date);
     const key=d.toLocaleDateString("en-US",{month:"short",year:"2-digit"});
     if(!monthlyMap[key]) monthlyMap[key]={month:key,shopping:0,saleTax:0,returns:0};
-    if(s.type==="return") monthlyMap[key].returns+=s.saved;
-    else if(s.type==="taxexempt") monthlyMap[key].saleTax+=s.saved;
-    else monthlyMap[key].shopping+=s.saved;
+    if(s.type==="return") {
+      monthlyMap[key].returns+=s.saved;
+    } else {
+      const tax=Number(s.saleTax)||0;
+      const shop=Number(s.shoppingSavings)||(tax?0:s.saved);
+      monthlyMap[key].saleTax+=tax;
+      monthlyMap[key].shopping+=shop;
+    }
   });
   const monthlyData=Object.values(monthlyMap).sort((a,b)=>new Date("1 "+a.month)-new Date("1 "+b.month));
 
@@ -1296,7 +1188,7 @@ function PortfolioScreen({savings,invested}) {
   );
 }
 
-function InvestScreen({invested,riskId,onInvestAll,uninvested}) {
+function InvestScreen({invested,riskId,onInvestAll,uninvested,fixedReserve}) {
   const [positions,setPositions]=useState([]);
   const [orders,setOrders]=useState([]);
   const [loading,setLoading]=useState(true);
@@ -1344,8 +1236,9 @@ function InvestScreen({invested,riskId,onInvestAll,uninvested}) {
         <div className="inv-sub">Powered by Alpaca · Paper Trading</div>
         {loading?<div className="spinner" style={{margin:"16px auto",width:32,height:32,borderWidth:3}}/>:<>
           <div className="inv-total">${(invested+totalGain).toFixed(2)}</div>
-          <div style={{display:"flex",gap:12,justifyContent:"center",marginTop:4}}>
+          <div style={{display:"flex",gap:12,justifyContent:"center",marginTop:4,flexWrap:"wrap"}}>
             <div style={{fontSize:12,color:"#aaa"}}>Invested: <span style={{color:"#d4af37",fontWeight:600}}>${invested.toFixed(2)}</span></div>
+            {fixedReserve>0&&<div style={{fontSize:12,color:"#aaa"}}>Fixed: <span style={{color:"#90caf9",fontWeight:600}}>${fixedReserve.toFixed(2)}</span></div>}
             {totalGain!==0&&<div style={{fontSize:12,color:totalGain>=0?"#81c784":"#e57373"}}>
               {totalGain>=0?"↑":"↓"} {totalGain>=0?"+":""}{totalGain.toFixed(2)} ({gainPct.toFixed(2)}%)
             </div>}
@@ -1416,6 +1309,21 @@ function InvestScreen({invested,riskId,onInvestAll,uninvested}) {
         }
       </div>
 
+      {fixedReserve>0&&(
+        <div className="section" style={{paddingTop:16}}>
+          <div className="section-header"><div className="section-title">Fixed / Cash Reserve</div></div>
+          <div className="holding-card">
+            <div className="holding-ticker" style={{background:"#e3f2fd",color:"#1565c0"}}>🏦</div>
+            <div className="holding-info">
+              <div className="holding-name">Fixed Interest Reserve</div>
+              <div className="holding-shares">4.5% APY · Cash portion from your risk profile</div>
+              <div className="alloc-bar"><div className="alloc-fill" style={{width:"100%",background:"#1565c0"}}/></div>
+            </div>
+            <div className="holding-right"><div className="holding-value">${fixedReserve.toFixed(2)}</div></div>
+          </div>
+        </div>
+      )}
+
       <div className="section" style={{paddingTop:16}}>
         <div className="section-header"><div className="section-title">Investment Strategy</div></div>
         <div style={{background:profile.bg,border:`1.5px solid ${profile.color}33`,borderRadius:14,padding:"16px",marginBottom:8}}>
@@ -1444,18 +1352,12 @@ function InvestScreen({invested,riskId,onInvestAll,uninvested}) {
 }
 
 function SettingsScreen({user,onLogout,riskId,onSetRisk}) {
-  const [notifs,setNotifs]=useState(true);const [autoDetect,setAutoDetect]=useState(true);const [dark,setDark]=useState(false);
   const [showRisk,setShowRisk]=useState(false);
   const profile=RISK_PROFILES.find(p=>p.id===riskId)||RISK_PROFILES[2];
-  const Toggle=({on,toggle})=><div className={`toggle ${on?"on":"off"}`} onClick={toggle}><div className="toggle-knob"/></div>;
   return (
     <div style={{paddingBottom:90}}>
       <div className="set-header"><div className="set-title">Settings</div></div>
       <div className="set-avatar-row"><div className="set-avatar">{user.name.charAt(0).toUpperCase()}</div><div><div className="set-name">{user.name}</div><div className="set-email">{user.email}</div></div></div>
-
-      <div className="set-section"><div className="set-section-title">Account</div>
-        {[{icon:"🏦",bg:"#e3f2fd",label:"Linked Banks",sub:"1 account connected"},{icon:"💳",bg:"#e8f5e9",label:"Payment Methods",sub:"Visa ending 4242"},{icon:"📍",bg:"#fff8e1",label:"State / Tax Rate",sub:"Auto-detected · 7.00%"}].map((it,i)=><div key={i} className="set-item"><div className="set-item-left"><div className="set-item-icon" style={{background:it.bg}}>{it.icon}</div><div><div className="set-item-label">{it.label}</div><div className="set-item-sub">{it.sub}</div></div></div><span style={{color:"#ccc"}}>›</span></div>)}
-      </div>
 
       {/* Risk Profile Section */}
       <div className="set-section">
@@ -1491,11 +1393,6 @@ function SettingsScreen({user,onLogout,riskId,onSetRisk}) {
         </div>
       </div>
 
-      <div className="set-section"><div className="set-section-title">Preferences</div>
-        <div className="set-item"><div className="set-item-left"><div className="set-item-icon" style={{background:"#f3e5f5"}}>🔔</div><div><div className="set-item-label">Return Notifications</div><div className="set-item-sub">Alert when return detected</div></div></div><Toggle on={notifs} toggle={()=>setNotifs(v=>!v)}/></div>
-        <div className="set-item"><div className="set-item-left"><div className="set-item-icon" style={{background:"#fce4ec"}}>🔍</div><div><div className="set-item-label">Auto-Detect Returns</div><div className="set-item-sub">Monitor bank transactions</div></div></div><Toggle on={autoDetect} toggle={()=>setAutoDetect(v=>!v)}/></div>
-        <div className="set-item"><div className="set-item-left"><div className="set-item-icon" style={{background:"#f5f2ec"}}>🌙</div><div><div className="set-item-label">Dark Mode</div><div className="set-item-sub">Coming soon</div></div></div><Toggle on={dark} toggle={()=>setDark(v=>!v)}/></div>
-      </div>
       <div className="set-section"><div className="set-section-title">About</div>
         {[{icon:"📋",bg:"#f5f2ec",label:"Terms of Service"},{icon:"🔒",bg:"#e8f5e9",label:"Privacy Policy"},{icon:"ℹ️",bg:"#e3f2fd",label:"Version",sub:"1.0.0 · Prototype"}].map((it,i)=><div key={i} className="set-item"><div className="set-item-left"><div className="set-item-icon" style={{background:it.bg}}>{it.icon}</div><div><div className="set-item-label">{it.label}</div>{it.sub&&<div className="set-item-sub">{it.sub}</div>}</div></div><span style={{color:"#ccc"}}>›</span></div>)}
       </div>
@@ -1543,7 +1440,6 @@ function HomeScreen({user,savings,setSavings,addSaving,handleInvestAll,invested,
               <span className="drop-arrow">{openDrop==="shopping"?"▲":"▼"}</span>
             </div>
             {openDrop==="shopping"&&<div className="drop-body">
-              <button className="drop-item" onClick={()=>{setModal("scan");setOpenDrop(null);}}><span className="drop-item-icon">📸</span><div><div className="drop-item-label">Scan Receipt</div><div className="drop-item-sub">Photo → Mindee OCR</div></div></button>
               <button className="drop-item" onClick={()=>{setModal("email");setOpenDrop(null);}}><span className="drop-item-icon">✨</span><div><div className="drop-item-label">Digital Receipt</div><div className="drop-item-sub">Paste text or fetch from Gmail</div></div></button>
               <button className="drop-item" onClick={()=>{setModal("manual");setOpenDrop(null);}}><span className="drop-item-icon">✏️</span><div><div className="drop-item-label">Manual Entry</div><div className="drop-item-sub">Enter sale or BOGO manually</div></div></button>
             </div>}
@@ -1556,10 +1452,8 @@ function HomeScreen({user,savings,setSavings,addSaving,handleInvestAll,invested,
               <span className="drop-arrow">{openDrop==="returns"?"▲":"▼"}</span>
             </div>
             {openDrop==="returns"&&<div className="drop-body">
-              <button className="drop-item" onClick={()=>{setModal("returnScan");setOpenDrop(null);}}><span className="drop-item-icon">📸</span><div><div className="drop-item-label">Scan Return Receipt</div><div className="drop-item-sub">Photo → Mindee OCR</div></div></button>
               <button className="drop-item" onClick={()=>{setModal("returnEmail");setOpenDrop(null);}}><span className="drop-item-icon">✨</span><div><div className="drop-item-label">Digital Return Receipt</div><div className="drop-item-sub">Paste confirmation or fetch from Gmail</div></div></button>
               <button className="drop-item" onClick={()=>{setModal("return");setOpenDrop(null);}}><span className="drop-item-icon">✏️</span><div><div className="drop-item-label">Manual Entry</div><div className="drop-item-sub">Enter store, item & refund amount</div></div></button>
-              <div style={{paddingTop:4}}><AutoDetectPanel onAccept={addSaving}/></div>
             </div>}
           </div>
         </div>
@@ -1570,11 +1464,9 @@ function HomeScreen({user,savings,setSavings,addSaving,handleInvestAll,invested,
         </div>
       </div>
       {modal==="manual"&&<ManualModal onClose={()=>setModal(null)} onSave={handleAddSaving} taxRate={taxRate} stateCode={stateCode}/>}
-      {modal==="scan"&&<ScanModal onClose={()=>setModal(null)} onSave={handleAddSaving}/>}
       {modal==="email"&&<EmailModal onClose={()=>setModal(null)} onSave={handleAddSaving}/>}
       {modal==="tax"&&<TaxModal onClose={()=>setModal(null)} onSave={handleAddSaving} taxRate={taxRate} stateCode={stateCode}/>}
       {modal==="return"&&<ReturnModal onClose={()=>setModal(null)} onSave={handleAddSaving}/>}
-      {modal==="returnScan"&&<ReturnScanModal onClose={()=>setModal(null)} onSave={handleAddSaving}/>}
       {modal==="returnEmail"&&<ReturnEmailModal onClose={()=>setModal(null)} onSave={handleAddSaving}/>}
       {toast&&<div className="toast">{toast}</div>}
     </>
@@ -1588,6 +1480,7 @@ export default function App() {
   const [user,setUser]=useState(null);
   const [savings,setSavings]=useState([]);
   const [invested,setInvested]=useState(0);
+  const [fixedReserve,setFixedReserve]=useState(0);
   const [taxRate,setTaxRate]=useState(0.07);
   const [stateCode,setStateCode]=useState(null);
   const [riskId,setRiskId]=useState("medium");
@@ -1602,8 +1495,9 @@ export default function App() {
         setSavings(data);
         setInvested(data.filter(s=>s.invested).reduce((a,s)=>a+s.saved,0));
       }
-      const {data:prefs}=await supabase.from("user_prefs").select("risk_id").eq("user_id",userId).single();
+      const {data:prefs}=await supabase.from("user_prefs").select("risk_id,fixed_reserve").eq("user_id",userId).single();
       if(prefs?.risk_id) setRiskId(prefs.risk_id);
+      if(prefs?.fixed_reserve) setFixedReserve(Number(prefs.fixed_reserve));
     } catch(e){ console.error(e); }
     finally { setLoadingData(false); }
   };
@@ -1622,8 +1516,17 @@ export default function App() {
 
   const handleInvestAll=async(amount)=>{
     const profile=RISK_PROFILES.find(p=>p.id===riskId)||RISK_PROFILES[2];
-    await investSavings(amount,profile); // throws if it fails — caller shows the error
-    if(user?.id) await supabase.from("savings").update({invested:true}).eq("user_id",user.id).eq("invested",false);
+    const {cashReserve}=await investSavings(amount,profile); // throws if it fails — caller shows the error
+    if(user?.id) {
+      await supabase.from("savings").update({invested:true}).eq("user_id",user.id).eq("invested",false);
+      if(cashReserve>0){
+        const newReserve=parseFloat((fixedReserve+cashReserve).toFixed(2));
+        await supabase.from("user_prefs").upsert({user_id:user.id,risk_id:riskId,fixed_reserve:newReserve},{onConflict:"user_id"});
+        setFixedReserve(newReserve);
+      }
+    } else if(cashReserve>0) {
+      setFixedReserve(v=>parseFloat((v+cashReserve).toFixed(2)));
+    }
     setInvested(v=>v+amount);
     setSavings(s=>s.map(x=>({...x,invested:true})));
   };
@@ -1664,7 +1567,7 @@ export default function App() {
       <div className="app">
         {tab==="home"&&<HomeScreen user={user} savings={savings} setSavings={setSavings} addSaving={addSaving} handleInvestAll={handleInvestAll} invested={invested} setInvested={setInvested} taxRate={taxRate} stateCode={stateCode}/>}
         {tab==="portfolio"&&<PortfolioScreen savings={savings} invested={invested}/>}
-        {tab==="invest"&&<InvestScreen invested={invested} riskId={riskId} onInvestAll={handleInvestAll} uninvested={savings.filter(s=>!s.invested).reduce((a,s)=>a+s.saved,0)}/>}
+        {tab==="invest"&&<InvestScreen invested={invested} riskId={riskId} onInvestAll={handleInvestAll} uninvested={savings.filter(s=>!s.invested).reduce((a,s)=>a+s.saved,0)} fixedReserve={fixedReserve}/>}
         {tab==="settings"&&<SettingsScreen user={user} onLogout={handleLogout} riskId={riskId} onSetRisk={setRiskId}/>}
         <div className="bottom-nav">
           <div className={`nav-item${tab==="home"?" active":""}`} onClick={()=>setTab("home")}><span className="nav-icon">🏠</span>Home</div>
