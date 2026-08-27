@@ -78,9 +78,6 @@ async function investSavings(amount, profile) {
     }
   }
   return { orders: results, cashReserve };
-    }
-  }
-  return results;
 }
 
 // ── Constants ─────────────────────────────────────────────────────
