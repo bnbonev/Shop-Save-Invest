@@ -1486,6 +1486,8 @@ export default function App() {
       const {data}=await supabase.from("savings").insert([{
         user_id:user.id,store:entry.store,item:entry.item,
         type:entry.type,saved:entry.saved,
+        shoppingSavings:entry.shoppingSavings??null,
+        saleTax:entry.saleTax??null,
         date:new Date().toISOString().split("T")[0],invested:false
       }]).select().single();
       if(data) { setSavings(s=>[data,...s]); return; }
