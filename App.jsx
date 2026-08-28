@@ -1058,9 +1058,7 @@ function ReturnEmailModal({onClose,onSave}) {
 }
 
 // ── Portfolio Screen ──────────────────────────────────────────────
-function PortfolioScreen({savings,invested,riskId,onSetRisk}) {
-  const [showRisk,setShowRisk]=useState(false);
-  const activeProfile=RISK_PROFILES.find(p=>p.id===riskId)||RISK_PROFILES[2];
+function PortfolioScreen({savings,invested}) {
   // ── Pie chart — real category breakdown ──────────────────────────
   const shoppingTotal=savings.filter(s=>s.type!=="return").reduce((a,s)=>a+(Number(s.shoppingSavings)||(s.saleTax?0:s.saved)),0);
   const saleTaxTotal=savings.filter(s=>s.type!=="return").reduce((a,s)=>a+(Number(s.saleTax)||0),0);
@@ -1183,51 +1181,18 @@ function PortfolioScreen({savings,invested,riskId,onSetRisk}) {
         <div className="stat-card"><div className="stat-label">Best Month</div><div className="stat-value">{bestMonth?bestMonth.month:"—"}</div><div className="stat-sub">{bestMonth?`$${bestMonthTotal.toFixed(2)} saved`:"No data yet"}</div></div>
         <div className="stat-card"><div className="stat-label">Invested</div><div className="stat-value">${invested.toFixed(2)}</div><div className="stat-sub">{savings.filter(s=>s.invested).length} entries</div></div>
       </div>
-
-      {/* Investment Strategy / Risk Profile Selector */}
-      <div className="section" style={{paddingTop:16}}>
-        <div className="section-header"><div className="section-title">Investment Strategy</div></div>
-        <div className="set-item" onClick={()=>setShowRisk(v=>!v)} style={{flexDirection:"column",alignItems:"stretch",background:"#fff",borderRadius:14,padding:"14px 16px",border:"1px solid #f0ece4"}}>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-            <div className="set-item-left">
-              <div className="set-item-icon" style={{background:activeProfile.bg,fontSize:18}}>{activeProfile.emoji}</div>
-              <div>
-                <div className="set-item-label">{activeProfile.label} Risk</div>
-                <div className="set-item-sub">{activeProfile.tag}</div>
-              </div>
-            </div>
-            <span style={{color:"#ccc"}}>{showRisk?"▲":"▼"}</span>
-          </div>
-          {showRisk&&<div style={{marginTop:12,display:"flex",flexDirection:"column",gap:8}}>
-            {RISK_PROFILES.map(p=>(
-              <div key={p.id} onClick={e=>{e.stopPropagation();onSetRisk(p.id);}}
-                style={{background:riskId===p.id?p.bg:"#f7f5f0",border:`1.5px solid ${riskId===p.id?p.color:"#e8e4dc"}`,borderRadius:12,padding:"12px 14px",cursor:"pointer",transition:"all 0.2s"}}>
-                <div style={{display:"flex",alignItems:"center",gap:8}}>
-                  <span>{p.emoji}</span>
-                  <span style={{fontSize:13,fontWeight:700,color:riskId===p.id?p.color:"#1a1a2e"}}>{p.label}</span>
-                  {p.id==="medium"&&<span style={{background:"#d4af37",color:"#1a1a2e",fontSize:9,fontWeight:700,padding:"2px 6px",borderRadius:20}}>POPULAR</span>}
-                  {riskId===p.id&&<span style={{marginLeft:"auto",color:p.color,fontWeight:700,fontSize:13}}>✓ Active</span>}
-                </div>
-                <div style={{fontSize:11,color:"#888",marginTop:4}}>{p.tag}</div>
-                <div style={{display:"flex",gap:4,marginTop:6,flexWrap:"wrap"}}>
-                  {p.allocations.map((a,i)=><span key={i} style={{background:"#fff",border:`1px solid ${a.color}33`,borderRadius:6,padding:"2px 6px",fontSize:10,color:a.color,fontWeight:600}}>{a.ticker} {a.pct}%</span>)}
-                </div>
-              </div>
-            ))}
-          </div>}
-        </div>
-        <div style={{fontSize:11,color:"#aaa",textAlign:"center",marginTop:8}}>Changes apply to future investments only</div>
-      </div>
     </div>
   );
 }
 
-function InvestScreen({invested,riskId,onInvestAll,uninvested,fixedReserve}) {
+function InvestScreen({invested,riskId,onInvestAll,uninvested,fixedReserve,onSetRisk}) {
   const [positions,setPositions]=useState([]);
   const [orders,setOrders]=useState([]);
   const [loading,setLoading]=useState(true);
   const [investing,setInvesting]=useState(false);
   const [toast,setToast]=useState(null);
+  const [showRisk,setShowRisk]=useState(false);
+  const activeProfile=RISK_PROFILES.find(p=>p.id===riskId)||RISK_PROFILES[2];
   const profile=RISK_PROFILES.find(p=>p.id===riskId)||RISK_PROFILES[2];
   const showToast=msg=>{setToast(msg);setTimeout(()=>setToast(null),3000);};
 
@@ -1358,7 +1323,40 @@ function InvestScreen({invested,riskId,onInvestAll,uninvested,fixedReserve}) {
         </div>
       )}
 
-      <div style={{fontSize:11,color:"#aaa",textAlign:"center",padding:"8px 24px 0"}}>Manage your risk profile in the Portfolio tab</div>
+      {/* Investment Strategy / Risk Profile Selector */}
+      <div className="section" style={{paddingTop:16}}>
+        <div className="section-header"><div className="section-title">Investment Strategy</div></div>
+        <div className="set-item" onClick={()=>setShowRisk(v=>!v)} style={{flexDirection:"column",alignItems:"stretch",background:"#fff",borderRadius:14,padding:"14px 16px",border:"1px solid #f0ece4"}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+            <div className="set-item-left">
+              <div className="set-item-icon" style={{background:activeProfile.bg,fontSize:18}}>{activeProfile.emoji}</div>
+              <div>
+                <div className="set-item-label">{activeProfile.label} Risk</div>
+                <div className="set-item-sub">{activeProfile.tag}</div>
+              </div>
+            </div>
+            <span style={{color:"#ccc"}}>{showRisk?"▲":"▼"}</span>
+          </div>
+          {showRisk&&<div style={{marginTop:12,display:"flex",flexDirection:"column",gap:8}}>
+            {RISK_PROFILES.map(p=>(
+              <div key={p.id} onClick={e=>{e.stopPropagation();onSetRisk(p.id);}}
+                style={{background:riskId===p.id?p.bg:"#f7f5f0",border:`1.5px solid ${riskId===p.id?p.color:"#e8e4dc"}`,borderRadius:12,padding:"12px 14px",cursor:"pointer",transition:"all 0.2s"}}>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <span>{p.emoji}</span>
+                  <span style={{fontSize:13,fontWeight:700,color:riskId===p.id?p.color:"#1a1a2e"}}>{p.label}</span>
+                  {p.id==="medium"&&<span style={{background:"#d4af37",color:"#1a1a2e",fontSize:9,fontWeight:700,padding:"2px 6px",borderRadius:20}}>POPULAR</span>}
+                  {riskId===p.id&&<span style={{marginLeft:"auto",color:p.color,fontWeight:700,fontSize:13}}>✓ Active</span>}
+                </div>
+                <div style={{fontSize:11,color:"#888",marginTop:4}}>{p.tag}</div>
+                <div style={{display:"flex",gap:4,marginTop:6,flexWrap:"wrap"}}>
+                  {p.allocations.map((a,i)=><span key={i} style={{background:"#fff",border:`1px solid ${a.color}33`,borderRadius:6,padding:"2px 6px",fontSize:10,color:a.color,fontWeight:600}}>{a.ticker} {a.pct}%</span>)}
+                </div>
+              </div>
+            ))}
+          </div>}
+        </div>
+        <div style={{fontSize:11,color:"#aaa",textAlign:"center",marginTop:8}}>Changes apply to future investments only</div>
+      </div>
     </div>
   );
 }
@@ -1554,8 +1552,8 @@ export default function App() {
       <style>{S}</style>
       <div className="app">
         {tab==="home"&&<HomeScreen user={user} savings={savings} setSavings={setSavings} addSaving={addSaving} handleInvestAll={handleInvestAll} invested={invested} setInvested={setInvested} taxRate={taxRate} stateCode={stateCode}/>}
-        {tab==="portfolio"&&<PortfolioScreen savings={savings} invested={invested} riskId={riskId} onSetRisk={updateRiskId}/>}
-        {tab==="invest"&&<InvestScreen invested={invested} riskId={riskId} onInvestAll={handleInvestAll} uninvested={savings.filter(s=>!s.invested).reduce((a,s)=>a+s.saved,0)} fixedReserve={fixedReserve}/>}
+        {tab==="portfolio"&&<PortfolioScreen savings={savings} invested={invested}/>}
+        {tab==="invest"&&<InvestScreen invested={invested} riskId={riskId} onInvestAll={handleInvestAll} uninvested={savings.filter(s=>!s.invested).reduce((a,s)=>a+s.saved,0)} fixedReserve={fixedReserve} onSetRisk={updateRiskId}/>}
         {tab==="settings"&&<SettingsScreen user={user} onLogout={handleLogout}/>}
         <div className="bottom-nav">
           <div className={`nav-item${tab==="home"?" active":""}`} onClick={()=>setTab("home")}><span className="nav-icon">🏠</span>Home</div>
