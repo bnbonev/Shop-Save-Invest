@@ -1060,16 +1060,16 @@ function ReturnEmailModal({onClose,onSave}) {
 // ── Portfolio Screen ──────────────────────────────────────────────
 function PortfolioScreen({savings,invested}) {
   // ── Pie chart — real category breakdown ──────────────────────────
-  const shoppingTotal=savings.filter(s=>s.type!=="return").reduce((a,s)=>a+(Number(s.shoppingSavings)||(s.saleTax?0:s.saved)),0);
-  const saleTaxTotal=savings.filter(s=>s.type!=="return").reduce((a,s)=>a+(Number(s.saleTax)||0),0);
-  const returnsTotal=savings.filter(s=>s.type==="return").reduce((a,s)=>a+s.saved,0);
+  const shoppingTotal=parseFloat(savings.filter(s=>s.type!=="return").reduce((a,s)=>a+(Number(s.shoppingSavings)||(s.saleTax?0:s.saved)),0).toFixed(2));
+  const saleTaxTotal=parseFloat(savings.filter(s=>s.type!=="return").reduce((a,s)=>a+(Number(s.saleTax)||0),0).toFixed(2));
+  const returnsTotal=parseFloat(savings.filter(s=>s.type==="return").reduce((a,s)=>a+s.saved,0).toFixed(2));
   const byType=[
     {name:"Shopping Savings", value:shoppingTotal, color:"#4caf50"},
     {name:"Sale Tax",         value:saleTaxTotal,  color:"#ff9800"},
     {name:"Returns",          value:returnsTotal,  color:"#e91e63"},
   ].filter(x=>x.value>0);
 
-  const totalSaved=savings.reduce((a,s)=>a+s.saved,0);
+  const totalSaved=parseFloat(savings.reduce((a,s)=>a+s.saved,0).toFixed(2));
 
   // ── Monthly bar chart — group real savings by month ───────────────
   const monthlyMap={};
@@ -1087,7 +1087,12 @@ function PortfolioScreen({savings,invested}) {
       monthlyMap[key].shopping+=shop;
     }
   });
-  const monthlyData=Object.values(monthlyMap).sort((a,b)=>new Date("1 "+a.month)-new Date("1 "+b.month));
+  const monthlyData=Object.values(monthlyMap).map(m=>({
+    ...m,
+    shopping:parseFloat(m.shopping.toFixed(2)),
+    saleTax:parseFloat(m.saleTax.toFixed(2)),
+    returns:parseFloat(m.returns.toFixed(2)),
+  })).sort((a,b)=>new Date("1 "+a.month)-new Date("1 "+b.month));
 
   // ── Line chart — cumulative invested value over time ─────────────
   const sortedSavings=[...savings].filter(s=>s.invested&&s.date).sort((a,b)=>new Date(a.date)-new Date(b.date));
@@ -1146,7 +1151,7 @@ function PortfolioScreen({savings,invested}) {
             <BarChart data={monthlyData} barSize={8}>
               <XAxis dataKey="month" tick={{fontSize:11,fill:"#aaa"}} axisLine={false} tickLine={false}/>
               <YAxis hide/>
-              <Tooltip contentStyle={{borderRadius:10,border:"none",fontSize:12}}/>
+              <Tooltip contentStyle={{borderRadius:10,border:"none",fontSize:12}} formatter={v=>`$${Number(v).toFixed(2)}`}/>
               <Bar dataKey="shopping" stackId="a" fill="#4caf50" name="Shopping"/>
               <Bar dataKey="saleTax" stackId="a" fill="#ff9800" name="Sale Tax"/>
               <Bar dataKey="returns" stackId="a" fill="#e91e63" radius={[4,4,0,0]} name="Returns"/>
