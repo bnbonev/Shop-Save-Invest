@@ -1062,14 +1062,14 @@ function PortfolioScreen({savings,invested}) {
   // ── Pie chart — real category breakdown ──────────────────────────
   const shoppingTotal=parseFloat(savings.filter(s=>s.type!=="return").reduce((a,s)=>a+(Number(s.shoppingSavings)||(s.saleTax?0:s.saved)),0).toFixed(2));
   const saleTaxTotal=parseFloat(savings.filter(s=>s.type!=="return").reduce((a,s)=>a+(Number(s.saleTax)||0),0).toFixed(2));
-  const returnsTotal=parseFloat(savings.filter(s=>s.type==="return").reduce((a,s)=>a+s.saved,0).toFixed(2));
+  const returnsTotal=parseFloat(savings.filter(s=>s.type==="return").reduce((a,s)=>a+Number(s.saved),0).toFixed(2));
   const byType=[
     {name:"Shopping Savings", value:shoppingTotal, color:"#4caf50"},
     {name:"Sale Tax",         value:saleTaxTotal,  color:"#ff9800"},
     {name:"Returns",          value:returnsTotal,  color:"#e91e63"},
   ].filter(x=>x.value>0);
 
-  const totalSaved=parseFloat(savings.reduce((a,s)=>a+s.saved,0).toFixed(2));
+  const totalSaved=parseFloat(savings.reduce((a,s)=>a+Number(s.saved),0).toFixed(2));
 
   // ── Monthly bar chart — group real savings by month ───────────────
   const monthlyMap={};
@@ -1384,7 +1384,7 @@ function HomeScreen({user,savings,setSavings,addSaving,handleInvestAll,invested,
   const [modal,setModal]=useState(null);const [toast,setToast]=useState(null);const [investing,setInvesting]=useState(false);
   const showToast=msg=>{setToast(msg);setTimeout(()=>setToast(null),3000);};
   const handleAddSaving=async entry=>{ await addSaving(entry); showToast(`✓ $${entry.saved.toFixed(2)} saved from ${entry.store}!`); };
-  const uninvested=savings.filter(s=>!s.invested).reduce((a,s)=>a+s.saved,0);
+  const uninvested=savings.filter(s=>!s.invested).reduce((a,s)=>a+Number(s.saved),0);
   const handleInvest=()=>{
     if(uninvested<=0) return;
     setInvesting(true);
@@ -1437,9 +1437,9 @@ function HomeScreen({user,savings,setSavings,addSaving,handleInvestAll,invested,
           </div>
         </div>
         <div className="section" style={{paddingTop:16}}>
-          <div className="section-header"><div className="section-title">Savings History</div><span className="see-all">${savings.reduce((a,s)=>a+s.saved,0).toFixed(2)} total</span></div>
+          <div className="section-header"><div className="section-title">Savings History</div><span className="see-all">${savings.reduce((a,s)=>a+Number(s.saved),0).toFixed(2)} total</span></div>
           {savings.length===0&&<div className="empty">No savings yet!</div>}
-          {savings.map(item=>{ const tc=TYPE_COLORS[item.type]||TYPE_COLORS.manual; return <div className="savings-item" key={item.id}><div className="savings-icon-wrap">{storeIcon(item.store)}</div><div className="savings-info"><div className="savings-store">{item.store}</div><div className="savings-name">{item.item}</div><div style={{fontSize:10,color:"#bbb",marginTop:2}}>{fmt(item.date)}</div></div><div className="savings-right"><div className="savings-amount">+${item.saved.toFixed(2)}</div><div><span className="badge" style={{background:tc.bg,color:tc.text}}>{tc.label}</span></div>{item.invested&&<div className="invested-tag">✓ Invested</div>}</div></div>; })}
+          {savings.map(item=>{ const tc=TYPE_COLORS[item.type]||TYPE_COLORS.manual; return <div className="savings-item" key={item.id}><div className="savings-icon-wrap">{storeIcon(item.store)}</div><div className="savings-info"><div className="savings-store">{item.store}</div><div className="savings-name">{item.item}</div><div style={{fontSize:10,color:"#bbb",marginTop:2}}>{fmt(item.date)}</div></div><div className="savings-right"><div className="savings-amount">+${Number(item.saved).toFixed(2)}</div><div><span className="badge" style={{background:tc.bg,color:tc.text}}>{tc.label}</span></div>{item.invested&&<div className="invested-tag">✓ Invested</div>}</div></div>; })}
         </div>
       </div>
       {modal==="manual"&&<ManualModal onClose={()=>setModal(null)} onSave={handleAddSaving} taxRate={taxRate} stateCode={stateCode}/>}
@@ -1472,7 +1472,7 @@ export default function App() {
       const {data,error}=await supabase.from("savings").select("*").eq("user_id",userId).order("created_at",{ascending:false});
       if(!error&&data){
         setSavings(data);
-        setInvested(data.filter(s=>s.invested).reduce((a,s)=>a+s.saved,0));
+        setInvested(data.filter(s=>s.invested).reduce((a,s)=>a+Number(s.saved),0));
       }
       const {data:prefs}=await supabase.from("user_prefs").select("risk_id,fixed_reserve").eq("user_id",userId).single();
       if(prefs?.risk_id) setRiskId(prefs.risk_id);
@@ -1560,7 +1560,7 @@ export default function App() {
       <div className="app">
         {tab==="home"&&<HomeScreen user={user} savings={savings} setSavings={setSavings} addSaving={addSaving} handleInvestAll={handleInvestAll} invested={invested} setInvested={setInvested} taxRate={taxRate} stateCode={stateCode}/>}
         {tab==="portfolio"&&<PortfolioScreen savings={savings} invested={invested}/>}
-        {tab==="invest"&&<InvestScreen invested={invested} riskId={riskId} onInvestAll={handleInvestAll} uninvested={savings.filter(s=>!s.invested).reduce((a,s)=>a+s.saved,0)} fixedReserve={fixedReserve} onSetRisk={updateRiskId}/>}
+        {tab==="invest"&&<InvestScreen invested={invested} riskId={riskId} onInvestAll={handleInvestAll} uninvested={savings.filter(s=>!s.invested).reduce((a,s)=>a+Number(s.saved),0)} fixedReserve={fixedReserve} onSetRisk={updateRiskId}/>}
         {tab==="settings"&&<SettingsScreen user={user} onLogout={handleLogout}/>}
         <div className="bottom-nav">
           <div className={`nav-item${tab==="home"?" active":""}`} onClick={()=>setTab("home")}><span className="nav-icon">🏠</span>Home</div>
