@@ -912,24 +912,30 @@ function EmailModal({onClose,onSave}) {
                 <input
                   type="text"
                   inputMode="numeric"
-                  placeholder="e.g. 75 → 7.5%"
+                  placeholder="0.0"
                   value={taxRateInput}
-                  onChange={e=>{
-                    const digits=e.target.value.replace(/[^0-9]/g,"");
-                    if(!digits){ setTaxRateInput(""); return; }
-                    if(digits.length===1){
-                      setTaxRateInput(digits+".0");
-                    } else {
-                      const whole=String(parseInt(digits.slice(0,-1),10));
-                      const dec=digits.slice(-1);
-                      setTaxRateInput(whole+"."+dec);
+                  onKeyDown={e=>{
+                    if(e.key==="Backspace"){
+                      e.preventDefault();
+                      const digits=(taxRateInput.replace(/[^0-9]/g,"")).slice(0,-1);
+                      if(!digits){ setTaxRateInput(""); return; }
+                      const num=parseInt(digits.padStart(2,"0"),10);
+                      setTaxRateInput((num/10).toFixed(1));
                     }
+                  }}
+                  onChange={e=>{
+                    const newChar=e.target.value.replace(taxRateInput,"").replace(/[^0-9]/g,"");
+                    if(!newChar) return;
+                    const current=(taxRateInput.replace(/[^0-9]/g,""));
+                    const digits=current+newChar;
+                    const num=parseInt(digits.padStart(2,"0"),10);
+                    setTaxRateInput((num/10).toFixed(1));
                   }}
                   style={{flex:1}}
                 />
                 <span style={{fontSize:14,fontWeight:600,color:"#e65100",flexShrink:0}}>%</span>
               </div>
-              <div style={{fontSize:11,color:"#aaa",marginTop:4}}>Only needed if the receipt has tax-exempt items</div>
+              <div style={{fontSize:11,color:"#aaa",marginTop:4}}>Type 75 → 7.5% · Type 70 → 7.0% · Type 100 → 10.0%</div>
             </div>
           </>}
 
