@@ -97,15 +97,6 @@ const STATE_TAX_RATES = {
   SC:0.06,SD:0.045,TN:0.07,TX:0.0625,UT:0.0485,VT:0.06,VA:0.043,WA:0.065,
   WV:0.06,WI:0.05,WY:0.04,
 };
-const MOCK_GMAIL = [
-  {id:"m1",subject:"Your Amazon order #113-4521 confirmation",from:"auto-confirm@amazon.com",
-   body:"Amazon Order Confirmation\nOrder #113-4521\n\nKindle Paperwhite Case\nList Price: $19.99\nYou Pay: $12.99\nYou saved: $7.00 (35% off)\n\nOrder Total: $12.99\nYou saved $7.00 on this order"},
-  {id:"m2",subject:"Your Publix Digital Receipt — Bradfordville",from:"noreply@publix.com",
-   body:"Publix Bradfordville Center\nTallahassee, FL\n\nPdg 1 @ 2 for $4.99 — You saved $2.49\nEstr Tie Dye Pdg 1 @ 2 for $4.99 — You saved $2.50\nOrganic Basil 20z 3.69\nSubtotal: 30.43\nSAVINGS: $4.99"},
-  {id:"m3",subject:"Instacart — Your Whole Foods delivery",from:"receipts@instacart.com",
-   body:"Instacart Receipt — Whole Foods Market\n\nOrganic Strawberries (Sale) $3.99 reg $5.99 — saved $2.00\nAlmond Butter BOGO — saved $9.99\nGranola Bars (Sale) $4.49 reg $6.99 — saved $2.50\nTotal: $42.18\nYou saved $14.49"},
-];
-
 // ── Helpers ───────────────────────────────────────────────────────
 async function detectStateFromCoords(lat,lon) {
   try {
@@ -850,20 +841,11 @@ function ManualModal({onClose,onSave,taxRate,stateCode}) {
   );
 }
 
-function GmailPanel({onLoad}) {
-  const [st,setSt]=useState("idle");const [emails,setEmails]=useState([]);const [sel,setSel]=useState(null);
-  const connect=()=>{ setSt("loading"); setTimeout(()=>{setEmails(MOCK_GMAIL);setSt("done");},1600); };
-  if(st==="idle") return <button onClick={connect} style={{width:"100%",background:"#fff",border:"1.5px solid #e8e4dc",borderRadius:12,padding:"13px",fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8,color:"#444"}}>📬 Demo: Browse Gmail Receipts</button>;
-  if(st==="loading") return <div style={{display:"flex",alignItems:"center",gap:10,padding:"13px",background:"#f5f2ec",borderRadius:12,fontSize:13,color:"#888"}}><div className="spinner"/>Scanning inbox for receipts…</div>;
-  return <div>{emails.map(e=><div key={e.id} onClick={()=>{setSel(e.id);onLoad(e.body);}} style={{background:sel===e.id?"#e8f5e9":"#fff",border:`1.5px solid ${sel===e.id?"#81c784":"#f0ece4"}`,borderRadius:12,padding:"12px 14px",marginBottom:8,cursor:"pointer"}}><div style={{fontSize:13,fontWeight:600,color:"#1a1a2e",marginBottom:3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.subject}</div><div style={{fontSize:11,color:"#aaa"}}>{e.from}</div>{sel===e.id&&<div style={{fontSize:11,color:"#2e7d32",marginTop:4,fontWeight:600}}>✓ Loaded — tap Parse below</div>}</div>)}</div>;
-}
-
 function EmailModal({onClose,onSave}) {
   const [st,setSt]=useState("idle");
   const [txt,setTxt]=useState("");
   const [res,setRes]=useState(null);
   const [err,setErr]=useState(null);
-  const [tab,setTab]=useState("paste");
   const [taxRateInput,setTaxRateInput]=useState("");
 
   const go=()=>{
@@ -896,14 +878,6 @@ function EmailModal({onClose,onSave}) {
         <div className="modal-title">Digital Receipt</div>
 
         {st==="idle"&&<>
-          <div className="type-sel">
-            <div className={`type-opt${tab==="paste"?" active":""}`} onClick={()=>setTab("paste")}>✏️ Paste Text</div>
-            <div className={`type-opt${tab==="gmail"?" active":""}`} onClick={()=>setTab("gmail")}>📬 Gmail</div>
-          </div>
-
-          {tab==="gmail"&&<GmailPanel onLoad={body=>{setTxt(body);setTab("paste");}}/>}
-
-          {tab==="paste"&&<>
             <div style={{background:"#e8f5e9",border:"1px solid #c8e6c9",borderRadius:10,padding:"10px 14px",fontSize:12,color:"#2e7d32",marginBottom:14,display:"flex",gap:8}}>
               <span style={{flexShrink:0}}>🔍</span>
               <span><strong>Built-in parser</strong> reads any receipt — Publix, Amazon, Instacart, Target, and more.</span>
@@ -943,7 +917,6 @@ function EmailModal({onClose,onSave}) {
               </div>
               <div style={{fontSize:11,color:"#aaa",marginTop:4,textTransform:"uppercase",letterSpacing:0.3}}>Type sale tax, if not included on receipt</div>
             </div>
-          </>}
 
           {err&&<div style={{background:"#fce4ec",border:"1px solid #f48fb1",borderRadius:10,padding:"10px 14px",fontSize:12,color:"#880e4f",marginBottom:12}}>{err}</div>}
           <button className="sub-btn" disabled={!txt.trim()} onClick={go}>🔍 Parse Receipt</button>
@@ -1048,7 +1021,6 @@ function ReturnEmailModal({onClose,onSave}) {
   const [txt,setTxt]=useState("");
   const [res,setRes]=useState(null);
   const [err,setErr]=useState(null);
-  const [tab,setTab]=useState("paste");
 
   const go=()=>{
     if(!txt.trim()) return;
@@ -1069,12 +1041,6 @@ function ReturnEmailModal({onClose,onSave}) {
         <div className="modal-handle"/>
         <div className="modal-title">Digital Return Receipt</div>
         {st==="idle"&&<>
-          <div className="type-sel">
-            <div className={`type-opt${tab==="paste"?" active":""}`} onClick={()=>setTab("paste")}>✏️ Paste Text</div>
-            <div className={`type-opt${tab==="gmail"?" active":""}`} onClick={()=>setTab("gmail")}>📬 Gmail</div>
-          </div>
-          {tab==="gmail"&&<GmailPanel onLoad={body=>{setTxt(body);setTab("paste");}}/>}
-          {tab==="paste"&&<>
             <div style={{background:"#fce4ec",border:"1px solid #f48fb1",borderRadius:10,padding:"10px 14px",fontSize:12,color:"#880e4f",marginBottom:14,display:"flex",gap:8}}>
               <span style={{flexShrink:0}}>🔍</span>
               <span><strong>Built-in parser</strong> reads return confirmations from Amazon, Target, Walmart and more.</span>
@@ -1083,7 +1049,6 @@ function ReturnEmailModal({onClose,onSave}) {
               <label>Return Confirmation Text</label>
               <textarea rows={7} placeholder="Paste your return confirmation or refund email here…" value={txt} onChange={e=>setTxt(e.target.value)} style={{fontFamily:"monospace",fontSize:12,lineHeight:1.5}}/>
             </div>
-          </>}
           {err&&<div style={{background:"#fce4ec",border:"1px solid #f48fb1",borderRadius:10,padding:"10px 14px",fontSize:12,color:"#880e4f",marginBottom:12}}>{err}</div>}
           <button className="sub-btn" disabled={!txt.trim()} onClick={go}>🔍 Parse Return</button>
         </>}
