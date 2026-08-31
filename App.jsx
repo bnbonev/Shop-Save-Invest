@@ -703,7 +703,7 @@ function LoginScreen({onLogin}) {
               {loading?"Processing…":tab==="login"?"Sign In →":"Create Account →"}
             </button>
             <div className="auth-hint">{tab==="login"?<>No account? <span onClick={()=>switchTab("signup")}>Sign up free</span></>:<>Already have one? <span onClick={()=>switchTab("login")}>Sign in</span></>}</div>
-            <div style={{marginTop:16,textAlign:"center"}}><button style={{background:"none",border:"1px solid #e8e4dc",borderRadius:10,padding:"10px 20px",fontSize:13,color:"#888",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}} onClick={()=>onLogin({name:"Demo User",email:"demo@shopsaveinvest.app"}, false)}>👀 Try Demo</button></div>
+            <div style={{marginTop:16,textAlign:"center"}}><button style={{background:"none",border:"1px solid #e8e4dc",borderRadius:10,padding:"10px 20px",fontSize:13,color:"#888",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}} onClick={()=>onLogin({name:"Demo User",email:"demo@shopsaveinvest.app",isDemo:true}, false)}>👀 Try Demo</button></div>
           </>
         )}
       </div>
@@ -1254,7 +1254,7 @@ function PortfolioScreen({savings,invested}) {
   );
 }
 
-function InvestScreen({invested,riskId,onInvestAll,uninvested,fixedReserve,onSetRisk}) {
+function InvestScreen({invested,riskId,onInvestAll,uninvested,fixedReserve,onSetRisk,isDemo,getDemoPositions}) {
   const [positions,setPositions]=useState([]);
   const [orders,setOrders]=useState([]);
   const [loading,setLoading]=useState(true);
@@ -1267,6 +1267,13 @@ function InvestScreen({invested,riskId,onInvestAll,uninvested,fixedReserve,onSet
 
   const loadPositions=async()=>{
     setLoading(true);
+    if(isDemo){
+      // Demo mode: simulated positions, always positive — never call Alpaca
+      setPositions(invested>0?getDemoPositions(riskId,invested):[]);
+      setOrders([]);
+      setLoading(false);
+      return;
+    }
     try {
       const [pos,ord]=await Promise.all([getAlpacaPositions(),getAlpacaOrders()]);
       setPositions(pos);
@@ -1277,7 +1284,7 @@ function InvestScreen({invested,riskId,onInvestAll,uninvested,fixedReserve,onSet
     finally { setLoading(false); }
   };
 
-  useEffect(()=>{ loadPositions(); },[]);
+  useEffect(()=>{ loadPositions(); },[invested,riskId]);
 
   const handleInvest=async()=>{
     if(uninvested<1) return;
@@ -1285,7 +1292,7 @@ function InvestScreen({invested,riskId,onInvestAll,uninvested,fixedReserve,onSet
     try {
       if(onInvestAll) await onInvestAll(uninvested);
       showToast(`🚀 $${uninvested.toFixed(2)} invested!`);
-      setTimeout(loadPositions,2000);
+      if(!isDemo) setTimeout(loadPositions,2000);
     } catch(e){
       showToast("Error placing trades. Try again.");
     } finally { setInvesting(false); }
@@ -1528,6 +1535,50 @@ export default function App() {
   const [stateCode,setStateCode]=useState(null);
   const [riskId,setRiskId]=useState("medium");
   const [loadingData,setLoadingData]=useState(false);
+  const [isDemo,setIsDemo]=useState(false);
+
+  // ── Demo mode: realistic sample data, always-positive gains ────────
+  const loadDemoData=()=>{
+    const today=new Date();
+    const daysAgo=n=>{ const d=new Date(today); d.setDate(d.getDate()-n); return d.toISOString().split("T")[0]; };
+    const demoSavings=[
+      {id:"d1",store:"Publix",item:"Publix Savings",type:"sale",saved:12.48,shoppingSavings:10.64,saleTax:1.84,date:daysAgo(2),invested:true},
+      {id:"d2",store:"Target",item:"Target Savings",type:"sale",saved:8.50,shoppingSavings:8.50,saleTax:0,date:daysAgo(5),invested:true},
+      {id:"d3",store:"Amazon",item:"Bluetooth Headphones (Return)",type:"return",saved:34.99,date:daysAgo(7),invested:true},
+      {id:"d4",store:"Walmart",item:"Walmart Savings",type:"sale",saved:7.00,shoppingSavings:7.00,saleTax:0,date:daysAgo(9),invested:true},
+      {id:"d5",store:"Kroger",item:"Kroger Savings",type:"sale",saved:15.20,shoppingSavings:12.10,saleTax:3.10,date:daysAgo(14),invested:true},
+      {id:"d6",store:"Target",item:"Stand Mixer (Return)",type:"return",saved:89.99,date:daysAgo(18),invested:true},
+      {id:"d7",store:"Publix",item:"Publix Savings",type:"sale",saved:9.75,shoppingSavings:8.20,saleTax:1.55,date:daysAgo(22),invested:true},
+      {id:"d8",store:"Whole Foods",item:"Whole Foods Savings",type:"sale",saved:11.30,shoppingSavings:11.30,saleTax:0,date:daysAgo(28),invested:true},
+    ];
+    const totalInvested=demoSavings.reduce((a,s)=>a+s.saved,0);
+    setSavings(demoSavings);
+    setInvested(parseFloat(totalInvested.toFixed(2)));
+    setFixedReserve(4.82);
+    setRiskId("medium");
+  };
+
+  // ── Demo positions: always-positive gains, allocated per risk profile ──
+  const getDemoPositions=(riskId,investedAmount)=>{
+    const profile=RISK_PROFILES.find(p=>p.id===riskId)||RISK_PROFILES[2];
+    const demoPrices={VOO:562.30,QQQ:521.80,IEMG:58.40,BND:72.90};
+    return profile.allocations.filter(a=>a.ticker!=="CASH").map(a=>{
+      const marketValue=parseFloat(((investedAmount*a.pct)/100).toFixed(2));
+      // Always show a healthy positive gain — between 2% and 6%
+      const gainPct=2+Math.random()*4;
+      const costBasis=parseFloat((marketValue/(1+gainPct/100)).toFixed(2));
+      const price=demoPrices[a.ticker]||100;
+      const qty=parseFloat((marketValue/price).toFixed(4));
+      return {
+        symbol:a.ticker,
+        qty:String(qty),
+        avg_entry_price:String((costBasis/qty).toFixed(2)),
+        market_value:String(marketValue),
+        unrealized_pl:String((marketValue-costBasis).toFixed(2)),
+        unrealized_plpc:String((gainPct/100).toFixed(4)),
+      };
+    });
+  };
 
   const loadUserData=async(userId)=>{
     if(!userId) return;
@@ -1573,6 +1624,15 @@ export default function App() {
 
   const handleInvestAll=async(amount)=>{
     const profile=RISK_PROFILES.find(p=>p.id===riskId)||RISK_PROFILES[2];
+    if(isDemo){
+      // Demo mode never touches Alpaca or Supabase — purely simulated
+      const cashPct=profile.allocations.find(a=>a.ticker==="CASH")?.pct||0;
+      const cashReserve=parseFloat(((amount*cashPct)/100).toFixed(2));
+      if(cashReserve>0) setFixedReserve(v=>parseFloat((v+cashReserve).toFixed(2)));
+      setInvested(v=>parseFloat((v+amount).toFixed(2)));
+      setSavings(s=>s.map(x=>({...x,invested:true})));
+      return;
+    }
     const {cashReserve}=await investSavings(amount,profile); // throws if it fails — caller shows the error
     if(user?.id) {
       await supabase.from("savings").update({invested:true}).eq("user_id",user.id).eq("invested",false);
@@ -1615,8 +1675,8 @@ export default function App() {
   },[]);
 
   const handleLogout=async()=>{
-    await supabase.auth.signOut();
-    setUser(null); setSavings([]); setInvested(0); setScreen("login"); setTab("home");
+    if(!isDemo) await supabase.auth.signOut();
+    setUser(null); setSavings([]); setInvested(0); setFixedReserve(0); setIsDemo(false); setScreen("login"); setTab("home");
   };
 
   if(screen==="resetPassword") return <><style>{S}</style><div className="app"><ResetPasswordScreen onDone={async()=>{
@@ -1630,7 +1690,11 @@ export default function App() {
       setScreen("login");
     }
   }}/></div></>;
-  if(screen==="login") return <><style>{S}</style><div className="app"><LoginScreen onLogin={(u,isNew)=>{setUser(u);loadUserData(u.id);setScreen(isNew?"onboarding":"app");}}/></div></>;
+  if(screen==="login") return <><style>{S}</style><div className="app"><LoginScreen onLogin={(u,isNew)=>{
+    setUser(u);
+    if(u.isDemo){ setIsDemo(true); loadDemoData(); setScreen("app"); }
+    else { setIsDemo(false); loadUserData(u.id); setScreen(isNew?"onboarding":"app"); }
+  }}/></div></>;
   if(screen==="onboarding") return <><style>{S}</style><div className="app"><OnboardingScreen onDone={()=>setScreen("app")} onSetRisk={updateRiskId}/></div></>;
   if(loadingData) return <><style>{S}</style><div className="app" style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",flexDirection:"column",gap:16}}><div className="spinner" style={{width:40,height:40,borderWidth:4}}/><div style={{fontSize:14,color:"#888",fontFamily:"'DM Sans',sans-serif"}}>Loading your account…</div></div></>;
   return (
@@ -1639,7 +1703,7 @@ export default function App() {
       <div className="app">
         {tab==="home"&&<HomeScreen user={user} savings={savings} setSavings={setSavings} addSaving={addSaving} handleInvestAll={handleInvestAll} invested={invested} setInvested={setInvested} taxRate={taxRate} stateCode={stateCode}/>}
         {tab==="portfolio"&&<PortfolioScreen savings={savings} invested={invested}/>}
-        {tab==="invest"&&<InvestScreen invested={invested} riskId={riskId} onInvestAll={handleInvestAll} uninvested={savings.filter(s=>!s.invested).reduce((a,s)=>a+Number(s.saved),0)} fixedReserve={fixedReserve} onSetRisk={updateRiskId}/>}
+        {tab==="invest"&&<InvestScreen invested={invested} riskId={riskId} onInvestAll={handleInvestAll} uninvested={savings.filter(s=>!s.invested).reduce((a,s)=>a+Number(s.saved),0)} fixedReserve={fixedReserve} onSetRisk={updateRiskId} isDemo={isDemo} getDemoPositions={getDemoPositions}/>}
         {tab==="settings"&&<SettingsScreen user={user} onLogout={handleLogout}/>}
         <div className="bottom-nav">
           <div className={`nav-item${tab==="home"?" active":""}`} onClick={()=>setTab("home")}><span className="nav-icon">🏠</span>Home</div>
