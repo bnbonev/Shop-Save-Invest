@@ -711,6 +711,58 @@ function LoginScreen({onLogin}) {
   );
 }
 
+// ── Reset Password Screen (shown after clicking email reset link) ──
+function ResetPasswordScreen({onDone}) {
+  const [password,setPassword]=useState("");
+  const [confirm,setConfirm]=useState("");
+  const [loading,setLoading]=useState(false);
+  const [error,setError]=useState(null);
+  const [done,setDone]=useState(false);
+
+  const submit=async()=>{
+    if(!password||password.length<6){ setError("Password must be at least 6 characters."); return; }
+    if(password!==confirm){ setError("Passwords don't match."); return; }
+    setLoading(true); setError(null);
+    try {
+      const {error}=await supabase.auth.updateUser({password});
+      if(error) throw error;
+      setDone(true);
+      setTimeout(()=>onDone(),1800);
+    } catch(e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="auth-screen">
+      <div className="auth-logo">Shop, Save, <span>Invest</span></div>
+      <div className="auth-tagline">Shop smarter. Save automatically. Invest the difference.</div>
+      <div className="auth-card">
+        {done?(
+          <div style={{textAlign:"center",padding:"12px 0 4px"}}>
+            <div style={{fontSize:36,marginBottom:10}}>✅</div>
+            <div style={{fontSize:15,fontWeight:600,color:"#1a1a2e",marginBottom:6}}>Password updated!</div>
+            <div style={{fontSize:13,color:"#888"}}>Taking you to your account…</div>
+          </div>
+        ):(
+          <>
+            <div style={{fontSize:15,fontWeight:600,color:"#1a1a2e",marginBottom:6}}>Set a new password</div>
+            <div style={{fontSize:12,color:"#888",marginBottom:16}}>Choose a new password for your account.</div>
+            <div className="auth-field"><label>New Password</label><input type="password" placeholder="••••••••" value={password} onChange={e=>setPassword(e.target.value)}/></div>
+            <div className="auth-field"><label>Confirm Password</label><input type="password" placeholder="••••••••" value={confirm} onChange={e=>setConfirm(e.target.value)}/></div>
+            {error&&<div style={{background:"#fce4ec",border:"1px solid #f48fb1",borderRadius:10,padding:"10px 14px",fontSize:12,color:"#880e4f",marginBottom:12}}>{error}</div>}
+            <button className="auth-btn" onClick={submit} disabled={loading}>
+              {loading?"Updating…":"Update Password →"}
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Modals ────────────────────────────────────────────────────────
 // ── Shared savings summary display ───────────────────────────────
 function SavingsSummary({store,shoppingSavings,saleTax,netSavings}) {
@@ -1544,7 +1596,11 @@ export default function App() {
         setUser(u); loadUserData(session.user.id); setScreen("app");
       }
     });
-    const {data:{subscription}}=supabase.auth.onAuthStateChange((_,session)=>{
+    const {data:{subscription}}=supabase.auth.onAuthStateChange((event,session)=>{
+      if(event==="PASSWORD_RECOVERY"){
+        setScreen("resetPassword");
+        return;
+      }
       if(!session){ setUser(null); setSavings([]); setInvested(0); setScreen("login"); setTab("home"); }
     });
     return ()=>subscription.unsubscribe();
@@ -1563,6 +1619,17 @@ export default function App() {
     setUser(null); setSavings([]); setInvested(0); setScreen("login"); setTab("home");
   };
 
+  if(screen==="resetPassword") return <><style>{S}</style><div className="app"><ResetPasswordScreen onDone={async()=>{
+    const {data:{session}}=await supabase.auth.getSession();
+    if(session?.user){
+      const name=session.user.user_metadata?.full_name||session.user.email.split("@")[0];
+      setUser({name,email:session.user.email,id:session.user.id});
+      loadUserData(session.user.id);
+      setScreen("app");
+    } else {
+      setScreen("login");
+    }
+  }}/></div></>;
   if(screen==="login") return <><style>{S}</style><div className="app"><LoginScreen onLogin={(u,isNew)=>{setUser(u);loadUserData(u.id);setScreen(isNew?"onboarding":"app");}}/></div></>;
   if(screen==="onboarding") return <><style>{S}</style><div className="app"><OnboardingScreen onDone={()=>setScreen("app")} onSetRisk={updateRiskId}/></div></>;
   if(loadingData) return <><style>{S}</style><div className="app" style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",flexDirection:"column",gap:16}}><div className="spinner" style={{width:40,height:40,borderWidth:4}}/><div style={{fontSize:14,color:"#888",fontFamily:"'DM Sans',sans-serif"}}>Loading your account…</div></div></>;
