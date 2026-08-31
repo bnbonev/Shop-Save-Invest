@@ -858,6 +858,7 @@ function EmailModal({onClose,onSave}) {
   const [res,setRes]=useState(null);
   const [err,setErr]=useState(null);
   const [tab,setTab]=useState("paste");
+  const [taxRateInput,setTaxRateInput]=useState("");
 
   const go=()=>{
     if(!txt.trim()) return;
@@ -867,6 +868,15 @@ function EmailModal({onClose,onSave}) {
       if(parsed.shoppingSavings===0&&parsed.taxPaid===0&&parsed.totalPurchase===0){
         setErr("No savings found. Check the receipt has 'You saved' or 'SAVINGS' printed on it, or try manual entry.");
         setSt("idle"); return;
+      }
+      // Calculate sale tax savings the same way Manual Entry does:
+      // full tax owed at entered rate minus tax actually paid
+      const enteredRate=parseFloat(taxRateInput)||0;
+      if(enteredRate>0&&parsed.totalPurchase>0){
+        const fullTax=parseFloat((parsed.totalPurchase*(enteredRate/100)).toFixed(2));
+        parsed.saleTax=parseFloat(Math.max(0,fullTax-parsed.taxPaid).toFixed(2));
+      } else {
+        parsed.saleTax=0;
       }
       parsed.netSavings=parseFloat((parsed.shoppingSavings+parsed.saleTax).toFixed(2));
       setRes(parsed); setSt("done");
@@ -895,6 +905,31 @@ function EmailModal({onClose,onSave}) {
             <div className="field">
               <label>Receipt Text</label>
               <textarea rows={8} placeholder="Paste your receipt text here…" value={txt} onChange={e=>setTxt(e.target.value)} style={{fontFamily:"monospace",fontSize:12,lineHeight:1.5}}/>
+            </div>
+            <div className="field">
+              <label>Tax Rate (%) <span style={{color:"#aaa",fontWeight:400}}>— optional, for Sale Tax savings</span></label>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  placeholder="e.g. 75 → 7.5%"
+                  value={taxRateInput}
+                  onChange={e=>{
+                    const digits=e.target.value.replace(/[^0-9]/g,"");
+                    if(!digits){ setTaxRateInput(""); return; }
+                    if(digits.length===1){
+                      setTaxRateInput(digits+".0");
+                    } else {
+                      const whole=String(parseInt(digits.slice(0,-1),10));
+                      const dec=digits.slice(-1);
+                      setTaxRateInput(whole+"."+dec);
+                    }
+                  }}
+                  style={{flex:1}}
+                />
+                <span style={{fontSize:14,fontWeight:600,color:"#e65100",flexShrink:0}}>%</span>
+              </div>
+              <div style={{fontSize:11,color:"#aaa",marginTop:4}}>Only needed if the receipt has tax-exempt items</div>
             </div>
           </>}
 
