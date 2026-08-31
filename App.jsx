@@ -941,7 +941,7 @@ function EmailModal({onClose,onSave}) {
                 />
                 <span style={{fontSize:14,fontWeight:600,color:"#e65100",flexShrink:0}}>%</span>
               </div>
-              <div style={{fontSize:11,color:"#aaa",marginTop:4}}>Type 75 → 7.5% · Type 70 → 7.0% · Type 100 → 10.0%</div>
+              <div style={{fontSize:11,color:"#aaa",marginTop:4,textTransform:"uppercase",letterSpacing:0.3}}>Type sale tax, if not included on receipt</div>
             </div>
           </>}
 
