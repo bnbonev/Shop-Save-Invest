@@ -199,6 +199,11 @@ function parseReceipt(text) {
     if (m) taxPaid = parseFloat(m[1]);
   }
 
+  // ── Tax rate: detect a printed percentage like "Sales Tax 7.5%" ──
+  let taxRateDetected = 0;
+  const rateMatch = full.match(/(?:sales?\s*tax|tax\s*rate)[^%\d]*(\d{1,2}\.?\d{0,3})\s*%/i);
+  if (rateMatch) taxRateDetected = parseFloat(rateMatch[1]);
+
   // ── Receipt total: "Total\n31.61" or "Total: 31.61" ──────────────
   let receiptTotal = 0;
   const totalIdx = lines.findIndex(l => /^total$/i.test(l));
@@ -225,7 +230,8 @@ function parseReceipt(text) {
     shoppingSavings: parseFloat(shoppingSavings.toFixed(2)),
     totalPurchase,
     taxPaid,
-    saleTax: 0, // calculated in modal using state rate
+    taxRateDetected,
+    saleTax: 0, // calculated in modal using entered/detected rate
     netSavings: parseFloat(shoppingSavings.toFixed(2)),
   };
 }
@@ -869,11 +875,11 @@ function EmailModal({onClose,onSave}) {
         setErr("No savings found. Check the receipt has 'You saved' or 'SAVINGS' printed on it, or try manual entry.");
         setSt("idle"); return;
       }
-      // Calculate sale tax savings the same way Manual Entry does:
-      // full tax owed at entered rate minus tax actually paid
-      const enteredRate=parseFloat(taxRateInput)||0;
-      if(enteredRate>0&&parsed.totalPurchase>0){
-        const fullTax=parseFloat((parsed.totalPurchase*(enteredRate/100)).toFixed(2));
+      // Use auto-detected tax rate from receipt if found, otherwise fall back to what user typed
+      const effectiveRate=parsed.taxRateDetected>0?parsed.taxRateDetected:(parseFloat(taxRateInput)||0);
+      if(parsed.taxRateDetected>0) setTaxRateInput(parsed.taxRateDetected.toFixed(1));
+      if(effectiveRate>0&&parsed.totalPurchase>0){
+        const fullTax=parseFloat((parsed.totalPurchase*(effectiveRate/100)).toFixed(2));
         parsed.saleTax=parseFloat(Math.max(0,fullTax-parsed.taxPaid).toFixed(2));
       } else {
         parsed.saleTax=0;
@@ -907,7 +913,7 @@ function EmailModal({onClose,onSave}) {
               <textarea rows={8} placeholder="Paste your receipt text here…" value={txt} onChange={e=>setTxt(e.target.value)} style={{fontFamily:"monospace",fontSize:12,lineHeight:1.5}}/>
             </div>
             <div className="field">
-              <label>Tax Rate (%) <span style={{color:"#aaa",fontWeight:400}}>— optional, for Sale Tax savings</span></label>
+              <label>Tax Rate (%) <span style={{color:"#aaa",fontWeight:400}}>— auto-detected if printed on receipt</span></label>
               <div style={{display:"flex",alignItems:"center",gap:8}}>
                 <input
                   type="text"
