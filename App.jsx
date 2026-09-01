@@ -1556,30 +1556,30 @@ function FeedbackModal({onClose,user}) {
   );
 }
 
-function SettingsScreen({user,onLogout}) {
+function SettingsScreen({user,onLogout,isDemo}) {
   const [showFeedback,setShowFeedback]=useState(false);
   return (
     <div style={{paddingBottom:90}}>
       <div className="set-header"><div className="set-title">Settings</div></div>
       <div className="set-avatar-row"><div className="set-avatar">{user.name.charAt(0).toUpperCase()}</div><div><div className="set-name">{user.name}</div><div className="set-email">{user.email}</div></div></div>
 
-      <div className="set-section"><div className="set-section-title">Beta Testing</div>
+      {!isDemo&&<div className="set-section"><div className="set-section-title">Beta Testing</div>
         <div className="set-item" onClick={()=>setShowFeedback(true)} style={{cursor:"pointer"}}>
           <div className="set-item-left"><div className="set-item-icon" style={{background:"#fff8e1"}}>💬</div><div><div className="set-item-label">Send Feedback</div><div className="set-item-sub">Help us improve the app — takes 1 minute</div></div></div>
           <span style={{color:"#ccc"}}>›</span>
         </div>
-      </div>
+      </div>}
 
       <div className="set-section"><div className="set-section-title">About</div>
         {[{icon:"📋",bg:"#f5f2ec",label:"Terms of Service"},{icon:"🔒",bg:"#e8f5e9",label:"Privacy Policy"},{icon:"ℹ️",bg:"#e3f2fd",label:"Version",sub:"1.0.0 · Prototype"}].map((it,i)=><div key={i} className="set-item"><div className="set-item-left"><div className="set-item-icon" style={{background:it.bg}}>{it.icon}</div><div><div className="set-item-label">{it.label}</div>{it.sub&&<div className="set-item-sub">{it.sub}</div>}</div></div><span style={{color:"#ccc"}}>›</span></div>)}
       </div>
       <button className="logout-btn" onClick={onLogout}>Sign Out</button>
-      {showFeedback&&<FeedbackModal onClose={()=>setShowFeedback(false)} user={user}/>}
+      {!isDemo&&showFeedback&&<FeedbackModal onClose={()=>setShowFeedback(false)} user={user}/>}
     </div>
   );
 }
 
-function HomeScreen({user,savings,setSavings,addSaving,handleInvestAll,invested,setInvested,taxRate,stateCode}) {
+function HomeScreen({user,savings,setSavings,addSaving,handleInvestAll,invested,setInvested,taxRate,stateCode,isDemo}) {
   const [modal,setModal]=useState(null);const [toast,setToast]=useState(null);const [investing,setInvesting]=useState(false);
   const showToast=msg=>{setToast(msg);setTimeout(()=>setToast(null),3000);};
   const handleAddSaving=async entry=>{ await addSaving(entry); showToast(`✓ $${entry.saved.toFixed(2)} saved from ${entry.store}!`); };
@@ -1609,7 +1609,7 @@ function HomeScreen({user,savings,setSavings,addSaving,handleInvestAll,invested,
         <div className="cards"><div className="card"><div className="card-label">Invested</div><div className="card-value gold">${invested.toFixed(2)}</div><div className="card-sub">↑ Growing</div></div><div className="card"><div className="card-label">Ready to Invest</div><div className="card-value">${uninvested.toFixed(2)}</div><div className="card-sub">{savings.filter(s=>!s.invested).length} new saves</div></div></div>
       </div>
       <div className="pb-nav">
-        {showFeedbackBanner&&(
+        {!isDemo&&showFeedbackBanner&&(
           <div style={{background:"#fff8e1",border:"1px solid #ffe082",borderRadius:14,padding:"12px 14px",margin:"14px 20px 0",display:"flex",alignItems:"center",gap:10}}>
             <span style={{fontSize:20,flexShrink:0}}>💬</span>
             <div style={{flex:1,fontSize:12,color:"#5d4037",lineHeight:1.4}}>We'd love to hear from you! Survey located in Settings. Thanks!</div>
@@ -1838,10 +1838,10 @@ export default function App() {
     <>
       <style>{S}</style>
       <div className="app">
-        {tab==="home"&&<HomeScreen user={user} savings={savings} setSavings={setSavings} addSaving={addSaving} handleInvestAll={handleInvestAll} invested={invested} setInvested={setInvested} taxRate={taxRate} stateCode={stateCode}/>}
+        {tab==="home"&&<HomeScreen user={user} savings={savings} setSavings={setSavings} addSaving={addSaving} handleInvestAll={handleInvestAll} invested={invested} setInvested={setInvested} taxRate={taxRate} stateCode={stateCode} isDemo={isDemo}/>}
         {tab==="portfolio"&&<PortfolioScreen savings={savings} invested={invested}/>}
         {tab==="invest"&&<InvestScreen invested={invested} riskId={riskId} onInvestAll={handleInvestAll} uninvested={savings.filter(s=>!s.invested).reduce((a,s)=>a+Number(s.saved),0)} fixedReserve={fixedReserve} onSetRisk={updateRiskId} isDemo={isDemo} getDemoPositions={getDemoPositions}/>}
-        {tab==="settings"&&<SettingsScreen user={user} onLogout={handleLogout}/>}
+        {tab==="settings"&&<SettingsScreen user={user} onLogout={handleLogout} isDemo={isDemo}/>}
         <div className="bottom-nav">
           <div className={`nav-item${tab==="home"?" active":""}`} onClick={()=>setTab("home")}><span className="nav-icon">🏠</span>Home</div>
           <div className={`nav-item${tab==="portfolio"?" active":""}`} onClick={()=>setTab("portfolio")}><span className="nav-icon">📊</span>Portfolio</div>
