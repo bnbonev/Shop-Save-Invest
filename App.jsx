@@ -1437,16 +1437,144 @@ function InvestScreen({invested,riskId,onInvestAll,uninvested,fixedReserve,onSet
   );
 }
 
+// ── Feedback Modal ────────────────────────────────────────────────
+function StarRating({value,onChange}) {
+  return (
+    <div style={{display:"flex",gap:6}}>
+      {[1,2,3,4,5].map(n=>(
+        <span key={n} onClick={()=>onChange(n)} style={{fontSize:28,cursor:"pointer",color:n<=value?"#d4af37":"#e8e4dc",transition:"color 0.15s"}}>★</span>
+      ))}
+    </div>
+  );
+}
+
+function YesNoToggle({value,onChange}) {
+  return (
+    <div style={{display:"flex",gap:8}}>
+      {["yes","no"].map(v=>(
+        <button key={v} onClick={()=>onChange(v)} style={{
+          flex:1,padding:"10px",borderRadius:10,border:`1.5px solid ${value===v?"#d4af37":"#e8e4dc"}`,
+          background:value===v?"#fff8e1":"#fff",color:value===v?"#8a6d1a":"#888",
+          fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",textTransform:"capitalize"
+        }}>{v}</button>
+      ))}
+    </div>
+  );
+}
+
+function FeedbackModal({onClose,user}) {
+  const [overallRating,setOverallRating]=useState(0);
+  const [trustMoney,setTrustMoney]=useState(null);
+  const [loggingEase,setLoggingEase]=useState(0);
+  const [investingEase,setInvestingEase]=useState(0);
+  const [wouldRecommend,setWouldRecommend]=useState(null);
+  const [comment,setComment]=useState("");
+  const [submitting,setSubmitting]=useState(false);
+  const [done,setDone]=useState(false);
+  const [error,setError]=useState(null);
+
+  const canSubmit=overallRating>0&&trustMoney&&loggingEase>0&&investingEase>0&&wouldRecommend;
+
+  const submit=async()=>{
+    if(!canSubmit) return;
+    setSubmitting(true); setError(null);
+    try {
+      if(user?.id){
+        const {error}=await supabase.from("feedback").insert([{
+          user_id:user.id,
+          overall_rating:overallRating,
+          trust_money:trustMoney,
+          logging_ease_rating:loggingEase,
+          investing_ease_rating:investingEase,
+          would_recommend:wouldRecommend,
+          comment:comment.trim()||null,
+        }]);
+        if(error) throw error;
+      }
+      setDone(true);
+    } catch(e) {
+      setError(e.message||"Something went wrong. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="overlay" onClick={e=>e.target===e.currentTarget&&onClose()}>
+      <div className="modal">
+        <div className="modal-handle"/>
+        <div className="modal-title">Beta Feedback</div>
+
+        {done?(
+          <div style={{textAlign:"center",padding:"20px 0 8px"}}>
+            <div style={{fontSize:40,marginBottom:12}}>🙏</div>
+            <div style={{fontSize:16,fontWeight:600,color:"#1a1a2e",marginBottom:6}}>Thank you!</div>
+            <div style={{fontSize:13,color:"#888",marginBottom:20}}>Your feedback helps shape the app.</div>
+            <button className="sub-btn" onClick={onClose}>Done</button>
+          </div>
+        ):(
+          <>
+            <div className="field">
+              <label>Overall, how would you rate your experience?</label>
+              <StarRating value={overallRating} onChange={setOverallRating}/>
+            </div>
+
+            <div className="field">
+              <label>Would you trust this app with your real money if it launched?</label>
+              <YesNoToggle value={trustMoney} onChange={setTrustMoney}/>
+            </div>
+
+            <div className="field">
+              <label>How easy was it to log your shopping savings and returns?</label>
+              <StarRating value={loggingEase} onChange={setLoggingEase}/>
+            </div>
+
+            <div className="field">
+              <label>How easy was it to invest your savings?</label>
+              <StarRating value={investingEase} onChange={setInvestingEase}/>
+            </div>
+
+            <div className="field">
+              <label>Would you recommend this app to a friend?</label>
+              <YesNoToggle value={wouldRecommend} onChange={setWouldRecommend}/>
+            </div>
+
+            <div className="field">
+              <label>What's the one thing that would make you use this app every week? <span style={{color:"#aaa",fontWeight:400}}>— optional</span></label>
+              <textarea rows={3} placeholder="Your thoughts…" value={comment} onChange={e=>setComment(e.target.value)} style={{fontSize:13,lineHeight:1.5}}/>
+            </div>
+
+            {error&&<div style={{background:"#fce4ec",border:"1px solid #f48fb1",borderRadius:10,padding:"10px 14px",fontSize:12,color:"#880e4f",marginBottom:12}}>{error}</div>}
+
+            <button className="sub-btn" disabled={!canSubmit||submitting} onClick={submit}>
+              {submitting?"Submitting…":"Submit Feedback →"}
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function SettingsScreen({user,onLogout}) {
+  const [showFeedback,setShowFeedback]=useState(false);
   return (
     <div style={{paddingBottom:90}}>
       <div className="set-header"><div className="set-title">Settings</div></div>
       <div className="set-avatar-row"><div className="set-avatar">{user.name.charAt(0).toUpperCase()}</div><div><div className="set-name">{user.name}</div><div className="set-email">{user.email}</div></div></div>
 
+      <div className="set-section"><div className="set-section-title">Beta Testing</div>
+        <div className="set-item" onClick={()=>setShowFeedback(true)} style={{cursor:"pointer"}}>
+          <div className="set-item-left"><div className="set-item-icon" style={{background:"#fff8e1"}}>💬</div><div><div className="set-item-label">Send Feedback</div><div className="set-item-sub">Help us improve the app — takes 1 minute</div></div></div>
+          <span style={{color:"#ccc"}}>›</span>
+        </div>
+      </div>
+
       <div className="set-section"><div className="set-section-title">About</div>
         {[{icon:"📋",bg:"#f5f2ec",label:"Terms of Service"},{icon:"🔒",bg:"#e8f5e9",label:"Privacy Policy"},{icon:"ℹ️",bg:"#e3f2fd",label:"Version",sub:"1.0.0 · Prototype"}].map((it,i)=><div key={i} className="set-item"><div className="set-item-left"><div className="set-item-icon" style={{background:it.bg}}>{it.icon}</div><div><div className="set-item-label">{it.label}</div>{it.sub&&<div className="set-item-sub">{it.sub}</div>}</div></div><span style={{color:"#ccc"}}>›</span></div>)}
       </div>
       <button className="logout-btn" onClick={onLogout}>Sign Out</button>
+      {showFeedback&&<FeedbackModal onClose={()=>setShowFeedback(false)} user={user}/>}
     </div>
   );
 }
