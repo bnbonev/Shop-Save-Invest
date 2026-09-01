@@ -1600,6 +1600,8 @@ function HomeScreen({user,savings,setSavings,addSaving,handleInvestAll,invested,
   };
   const [openDrop,setOpenDrop]=useState(null);
   const toggleDrop=key=>setOpenDrop(o=>o===key?null:key);
+  const [showFeedbackBanner,setShowFeedbackBanner]=useState(()=>localStorage.getItem("feedbackBannerDismissed")!=="true");
+  const dismissFeedbackBanner=()=>{ localStorage.setItem("feedbackBannerDismissed","true"); setShowFeedbackBanner(false); };
   return (
     <>
       <div className="header">
@@ -1607,6 +1609,13 @@ function HomeScreen({user,savings,setSavings,addSaving,handleInvestAll,invested,
         <div className="cards"><div className="card"><div className="card-label">Invested</div><div className="card-value gold">${invested.toFixed(2)}</div><div className="card-sub">↑ Growing</div></div><div className="card"><div className="card-label">Ready to Invest</div><div className="card-value">${uninvested.toFixed(2)}</div><div className="card-sub">{savings.filter(s=>!s.invested).length} new saves</div></div></div>
       </div>
       <div className="pb-nav">
+        {showFeedbackBanner&&(
+          <div style={{background:"#fff8e1",border:"1px solid #ffe082",borderRadius:14,padding:"12px 14px",margin:"14px 20px 0",display:"flex",alignItems:"center",gap:10}}>
+            <span style={{fontSize:20,flexShrink:0}}>💬</span>
+            <div style={{flex:1,fontSize:12,color:"#5d4037",lineHeight:1.4}}>We'd love to hear from you! Survey located in Settings. Thanks!</div>
+            <span onClick={dismissFeedbackBanner} style={{fontSize:16,color:"#bbb",cursor:"pointer",flexShrink:0,padding:4}}>✕</span>
+          </div>
+        )}
         <div className="invest-bar"><button className="invest-btn" onClick={handleInvest} disabled={uninvested<=0||investing}>{investing?<><span className="spinner" style={{borderColor:"rgba(26,26,46,0.2)",borderTopColor:"#1a1a2e"}}/>Investing…</>:`🚀 Invest $${uninvested.toFixed(2)} Now`}</button></div>
         <div className="section">
           <div className="section-header"><div className="section-title">Add Savings</div></div>
