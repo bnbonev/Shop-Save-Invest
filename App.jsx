@@ -1631,7 +1631,7 @@ function daysLeft(plan) {
 function GivingModal({onClose,plan,savings,onSave,onMarkGiven}) {
   const isEditing = !!plan;
   const [organization,setOrganization]=useState(plan?.organization||"");
-  const [categories,setCategories]=useState(plan?.categories||["saleTax","returns"]);
+  const [categories,setCategories]=useState(plan?.categories||[]);
   const [periodDays,setPeriodDays]=useState(plan?.period_days||30);
   const [saving,setSaving]=useState(false);
   const [error,setError]=useState(null);
@@ -1701,7 +1701,7 @@ function GivingModal({onClose,plan,savings,onSave,onMarkGiven}) {
 
         <div className="field">
           <label>1. Which organization?</label>
-          <input placeholder="e.g. American Red Cross" value={organization} onChange={e=>setOrganization(e.target.value)}/>
+          <input placeholder="Enter organization name" value={organization} onChange={e=>setOrganization(e.target.value)}/>
         </div>
 
         <div className="field">
