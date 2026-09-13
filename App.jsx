@@ -1630,6 +1630,7 @@ function daysLeft(plan) {
 
 function GivingModal({onClose,plan,savings,onSave,onMarkGiven,onDelete}) {
   const isEditing = !!plan;
+  const [showEditForm,setShowEditForm]=useState(!isEditing);
   const [organization,setOrganization]=useState(plan?.organization||"");
   const [categories,setCategories]=useState(plan?.categories||[]);
   const [periodDays,setPeriodDays]=useState(plan?.period_days||30);
@@ -1694,71 +1695,90 @@ function GivingModal({onClose,plan,savings,onSave,onMarkGiven,onDelete}) {
                 ))}
               </div>
             )}
+
+            {remaining===0 && (
+              <div style={{background:"#fff8e1",border:"1px solid #ffe082",borderRadius:12,padding:"12px 14px",marginBottom:14,display:"flex",gap:10,alignItems:"flex-start"}}>
+                <span style={{fontSize:18,flexShrink:0}}>💌</span>
+                <div style={{fontSize:12,color:"#5d4037",lineHeight:1.5}}>
+                  Your giving period is complete! Mail a check or pay <strong>${total.toFixed(2)}</strong> online to <strong>{plan.organization}</strong>, then let us know below what's next.
+                </div>
+              </div>
+            )}
           </>
         )}
 
-        <div className="modal-title">{isEditing?"Plan settings":"Set up a giving plan"}</div>
-
-        <div className="field">
-          <label>1. Which organization?</label>
-          <input placeholder="Enter organization name" value={organization} onChange={e=>setOrganization(e.target.value)}/>
-        </div>
-
-        <div className="field">
-          <label>2. Which savings should count?</label>
-          <div style={{display:"flex",flexDirection:"column",gap:8,marginTop:6}}>
-            {GIVING_CATEGORIES.map(c=>(
-              <div key={c.key} onClick={()=>toggleCategory(c.key)}
-                style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:"#fff",border:`1.5px solid ${categories.includes(c.key)?"#ad1457":"#e8e4dc"}`,borderRadius:10,padding:"12px 14px",cursor:"pointer"}}>
-                <div style={{display:"flex",alignItems:"center",gap:10}}>
-                  <span style={{fontSize:16}}>{c.icon}</span>
-                  <span style={{fontSize:13,color:"#1a1a2e"}}>{c.label}</span>
-                </div>
-                <input type="checkbox" checked={categories.includes(c.key)} onChange={()=>{}} style={{width:16,height:16,accentColor:"#ad1457"}}/>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="field">
-          <label>3. How long is the giving period?</label>
-          <div style={{display:"flex",gap:8,marginTop:6}}>
-            {[15,30,60].map(d=>(
-              <button key={d} onClick={()=>setPeriodDays(d)}
-                style={{flex:1,textAlign:"center",background:periodDays===d?"#1a1a2e":"#fff",border:`1px solid ${periodDays===d?"#1a1a2e":"#e8e4dc"}`,borderRadius:10,padding:"12px 8px",cursor:"pointer",fontSize:13,color:periodDays===d?"#fff":"#888",fontWeight:periodDays===d?600:400}}>
-                {d} days
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {error&&<div style={{background:"#fce4ec",border:"1px solid #f48fb1",borderRadius:10,padding:"10px 14px",fontSize:12,color:"#880e4f",marginBottom:12}}>{error}</div>}
-
-        {isEditing && remaining===0 && (
-          <div style={{background:"#fff8e1",border:"1px solid #ffe082",borderRadius:12,padding:"12px 14px",marginBottom:14,display:"flex",gap:10,alignItems:"flex-start"}}>
-            <span style={{fontSize:18,flexShrink:0}}>💌</span>
-            <div style={{fontSize:12,color:"#5d4037",lineHeight:1.5}}>
-              Your giving period is complete! Mail a check or pay <strong>${total.toFixed(2)}</strong> online to <strong>{plan.organization}</strong>, then let us know below what's next.
-            </div>
-          </div>
-        )}
-
-        <button className="sub-btn" style={{background:"#ad1457"}} disabled={!canSubmit||saving} onClick={submit}>
-          {saving?"Saving…":isEditing?"Save changes":"Start giving plan →"}
-        </button>
-
-        {isEditing && (
+        {isEditing && !showEditForm && (
           <>
-            <div style={{fontSize:12,color:"#888",textAlign:"center",marginBottom:8}}>Already gave? Let us know what's next:</div>
-            <button onClick={()=>onMarkGiven(plan,true)} style={{width:"100%",background:"#ad1457",color:"#fff",border:"none",borderRadius:12,padding:12,fontSize:13,fontWeight:600,cursor:"pointer",marginBottom:8,fontFamily:"'DM Sans',sans-serif"}}>
+            <button onClick={()=>onMarkGiven(plan,true)} style={{width:"100%",background:"#ad1457",color:"#fff",border:"none",borderRadius:12,padding:14,fontSize:14,fontWeight:600,cursor:"pointer",marginBottom:8,fontFamily:"'DM Sans',sans-serif"}}>
               ✓ Given — start a new {plan.period_days}-day period
             </button>
-            <button onClick={()=>onMarkGiven(plan,false)} style={{width:"100%",background:"none",border:"1px dashed #d4a5b8",color:"#ad1457",borderRadius:12,padding:12,fontSize:13,cursor:"pointer",marginBottom:16,fontFamily:"'DM Sans',sans-serif"}}>
+            <button onClick={()=>onMarkGiven(plan,false)} style={{width:"100%",background:"none",border:"1px dashed #d4a5b8",color:"#ad1457",borderRadius:12,padding:14,fontSize:14,cursor:"pointer",marginBottom:16,fontFamily:"'DM Sans',sans-serif"}}>
               ✓ Given — end this giving plan
             </button>
-            <div style={{textAlign:"center"}}>
+            <div style={{display:"flex",justifyContent:"center",gap:20}}>
+              <span onClick={()=>setShowEditForm(true)} style={{fontSize:12,color:"#888",cursor:"pointer",textDecoration:"underline"}}>Edit plan settings</span>
               <span onClick={()=>onDelete(plan)} style={{fontSize:12,color:"#aaa",cursor:"pointer",textDecoration:"underline"}}>Delete this plan</span>
             </div>
+          </>
+        )}
+
+        {showEditForm && (
+          <>
+            <div className="modal-title">{isEditing?"Plan settings":"Set up a giving plan"}</div>
+
+            {!isEditing && (
+              <div style={{background:"#fff8e1",border:"1px solid #ffe082",borderRadius:12,padding:"12px 14px",marginBottom:16,display:"flex",gap:10,alignItems:"flex-start"}}>
+                <span style={{fontSize:18,flexShrink:0}}>ℹ️</span>
+                <div style={{fontSize:12,color:"#5d4037",lineHeight:1.5}}>
+                  <strong>Payment will not go automatically.</strong> At the end of the giving period, please send a check to, or pay online, the selected organization.
+                </div>
+              </div>
+            )}
+
+            <div className="field">
+              <label>1. Which organization?</label>
+              <input placeholder="Enter organization name" value={organization} onChange={e=>setOrganization(e.target.value)}/>
+            </div>
+
+            <div className="field">
+              <label>2. Which savings should count?</label>
+              <div style={{display:"flex",flexDirection:"column",gap:8,marginTop:6}}>
+                {GIVING_CATEGORIES.map(c=>(
+                  <div key={c.key} onClick={()=>toggleCategory(c.key)}
+                    style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:"#fff",border:`1.5px solid ${categories.includes(c.key)?"#ad1457":"#e8e4dc"}`,borderRadius:10,padding:"12px 14px",cursor:"pointer"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:10}}>
+                      <span style={{fontSize:16}}>{c.icon}</span>
+                      <span style={{fontSize:13,color:"#1a1a2e"}}>{c.label}</span>
+                    </div>
+                    <input type="checkbox" checked={categories.includes(c.key)} onChange={()=>{}} style={{width:16,height:16,accentColor:"#ad1457"}}/>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="field">
+              <label>3. How long is the giving period?</label>
+              <div style={{display:"flex",gap:8,marginTop:6}}>
+                {[15,30,60].map(d=>(
+                  <button key={d} onClick={()=>setPeriodDays(d)}
+                    style={{flex:1,textAlign:"center",background:periodDays===d?"#1a1a2e":"#fff",border:`1px solid ${periodDays===d?"#1a1a2e":"#e8e4dc"}`,borderRadius:10,padding:"12px 8px",cursor:"pointer",fontSize:13,color:periodDays===d?"#fff":"#888",fontWeight:periodDays===d?600:400}}>
+                    {d} days
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {error&&<div style={{background:"#fce4ec",border:"1px solid #f48fb1",borderRadius:10,padding:"10px 14px",fontSize:12,color:"#880e4f",marginBottom:12}}>{error}</div>}
+
+            <button className="sub-btn" style={{background:"#ad1457"}} disabled={!canSubmit||saving} onClick={submit}>
+              {saving?"Saving…":isEditing?"Save changes":"Start giving plan →"}
+            </button>
+
+            {isEditing && (
+              <div style={{textAlign:"center",marginTop:10}}>
+                <span onClick={()=>setShowEditForm(false)} style={{fontSize:12,color:"#888",cursor:"pointer",textDecoration:"underline"}}>Cancel</span>
+              </div>
+            )}
           </>
         )}
       </div>
