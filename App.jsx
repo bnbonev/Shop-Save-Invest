@@ -1605,7 +1605,7 @@ function computeGivingTotal(savings, plan) {
   const cats = plan.categories||[];
   let total = 0;
   savings.forEach(s=>{
-    if(!s.date) return;
+    if(!s.date||s.invested) return;
     const d = parseLocalDate(s.date);
     if(d < start) return;
     const isReturn = s.type==="return";
@@ -1705,7 +1705,7 @@ function GivingModal({onClose,plan,savings,onSave,onDelete}) {
   const catTotals = isEditing ? GIVING_CATEGORIES.map(c=>{
     let sum=0;
     savings.forEach(s=>{
-      if(!s.date) return;
+      if(!s.date||s.invested) return;
       const d=parseLocalDate(s.date);
       if(d < parseLocalDate(plan.period_start)) return;
       const isReturn = s.type==="return";
