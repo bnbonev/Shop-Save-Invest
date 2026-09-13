@@ -2178,6 +2178,10 @@ export default function App() {
   const handleInvestAll=async(amount, partialClaims={})=>{
     const profile=RISK_PROFILES.find(p=>p.id===riskId)||RISK_PROFILES[2];
     const claimedIds = Object.keys(partialClaims);
+    console.log("[INVEST DEBUG] amount to invest:", amount);
+    console.log("[INVEST DEBUG] partialClaims:", partialClaims);
+    console.log("[INVEST DEBUG] claimedIds:", claimedIds);
+    console.log("[INVEST DEBUG] current savings snapshot:", savings.map(s=>({id:s.id,saved:s.saved,invested:s.invested,type:s.type,shoppingSavings:s.shoppingSavings,saleTax:s.saleTax})));
 
     if(isDemo){
       // Demo mode never touches Alpaca or Supabase — purely simulated
@@ -2205,7 +2209,9 @@ export default function App() {
       // Entries with nothing claimed against them: invest in full, as before.
       let query = supabase.from("savings").update({invested:true}).eq("user_id",user.id).eq("invested",false);
       if(claimedIds.length>0) query = query.not("id","in",`(${claimedIds.join(",")})`);
-      await query;
+      console.log("[INVEST DEBUG] Bulk-invest filter — excluding IDs:", claimedIds);
+      const bulkResult = await query;
+      console.log("[INVEST DEBUG] Bulk update result:", bulkResult);
 
       // Entries partially claimed: shrink the original row to just the claimed
       // slice (left behind, still uninvested), and insert a new already-invested
@@ -2215,13 +2221,16 @@ export default function App() {
         if(!entry) continue;
         const claimedAmt = parseFloat(Math.min(partialClaims[id], Number(entry.saved)).toFixed(2));
         const investedAmt = parseFloat((Number(entry.saved)-claimedAmt).toFixed(2));
+        console.log(`[INVEST DEBUG] Splitting entry ${id}: original=${entry.saved}, claimedAmt=${claimedAmt}, investedAmt=${investedAmt}`);
         if(investedAmt>0){
-          await supabase.from("savings").insert([{
+          const insertResult = await supabase.from("savings").insert([{
             user_id:user.id, store:entry.store, item:entry.item, type:entry.type,
             saved:investedAmt, date:entry.date, invested:true,
           }]);
+          console.log(`[INVEST DEBUG] Inserted new invested row for ${id}:`, insertResult);
         }
-        await supabase.from("savings").update({saved:claimedAmt}).eq("id",id).eq("user_id",user.id);
+        const shrinkResult = await supabase.from("savings").update({saved:claimedAmt}).eq("id",id).eq("user_id",user.id);
+        console.log(`[INVEST DEBUG] Shrunk original row ${id} to ${claimedAmt}:`, shrinkResult);
       }
 
       if(cashReserve>0){
@@ -2229,11 +2238,13 @@ export default function App() {
         await supabase.from("user_prefs").upsert({user_id:user.id,risk_id:riskId,fixed_reserve:newReserve},{onConflict:"user_id"});
         setFixedReserve(newReserve);
       }
+      // loadUserData re-fetches fresh from Supabase and sets `invested` correctly
+      // from the actual database state — no need to also add `amount` on top of it.
       await loadUserData(user.id);
     } else if(cashReserve>0) {
       setFixedReserve(v=>parseFloat((v+cashReserve).toFixed(2)));
+      setInvested(v=>v+amount);
     }
-    setInvested(v=>v+amount);
   };
 
   useEffect(()=>{
