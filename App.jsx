@@ -1267,11 +1267,10 @@ function PortfolioScreen({savings,invested}) {
   );
 }
 
-function InvestScreen({invested,riskId,onInvestAll,uninvested,fixedReserve,onSetRisk,isDemo,getDemoPositions}) {
+function InvestScreen({invested,riskId,uninvested,fixedReserve,onSetRisk,isDemo,getDemoPositions,onInvestClick,investing}) {
   const [positions,setPositions]=useState([]);
   const [orders,setOrders]=useState([]);
   const [loading,setLoading]=useState(true);
-  const [investing,setInvesting]=useState(false);
   const [toast,setToast]=useState(null);
   const [showRisk,setShowRisk]=useState(false);
   const activeProfile=RISK_PROFILES.find(p=>p.id===riskId)||RISK_PROFILES[2];
@@ -1301,14 +1300,13 @@ function InvestScreen({invested,riskId,onInvestAll,uninvested,fixedReserve,onSet
 
   const handleInvest=async()=>{
     if(uninvested<1) return;
-    setInvesting(true);
-    try {
-      if(onInvestAll) await onInvestAll(uninvested);
-      showToast(`🚀 $${uninvested.toFixed(2)} invested!`);
+    const result = await onInvestClick();
+    if(result?.success) {
+      showToast(`🚀 $${result.amount.toFixed(2)} invested!`);
       if(!isDemo) setTimeout(loadPositions,2000);
-    } catch(e){
-      showToast("Error placing trades. Try again.");
-    } finally { setInvesting(false); }
+    } else if(result?.error) {
+      showToast(`⚠️ ${result.error}`);
+    }
   };
 
   // Calculate total from app-invested positions only
@@ -1629,10 +1627,13 @@ function computeGivingTotal(savings, plan) {
 }
 
 // Total across ALL active giving plans — this is money that's earmarked to give,
-// and should not also be offered up to invest.
+// and should not also be offered up to invest. Uses the same capped per-entry
+// claims as getGivingPartialClaims so overlapping plans (e.g. two plans that
+// both pledge Sale Tax) never double-count the same dollar.
 function computeTotalClaimedByGiving(savings, plans) {
   if(!plans||plans.length===0) return 0;
-  const total = plans.reduce((sum,plan)=>sum+computeGivingTotal(savings,plan),0);
+  const claims = getGivingPartialClaims(savings, plans);
+  const total = Object.values(claims).reduce((a,v)=>a+v,0);
   return parseFloat(total.toFixed(2));
 }
 
@@ -1649,9 +1650,22 @@ function computeTotalClaimedByGiving(savings, plans) {
 // plan, returns how much of it is still owed to giving: { [id]: claimedDollarAmount }.
 // This lets the invest flow split a mixed entry (e.g. Shopping + Sale Tax) so only
 // the un-claimed slice gets invested, leaving the claimed slice behind untouched.
+// For each savings entry that's claimed (fully or partially) by an active giving
+// plan, returns how much of it is still owed to giving: { [id]: claimedDollarAmount }.
+// This lets the invest flow split a mixed entry (e.g. Shopping + Sale Tax) so only
+// the un-claimed slice gets invested, leaving the claimed slice behind untouched.
+//
+// Tracks claims PER-CATEGORY-SLICE (not just per-entry), so if a user has two
+// overlapping active giving plans that both happen to claim the same category
+// (e.g. two plans that both pledge "Sale Tax"), that dollar slice is only ever
+// counted once — the second plan simply doesn't get to claim what's already
+// spoken for. Non-overlapping claims (one plan claims Sale Tax, another claims
+// Shopping) still combine normally.
 function getGivingPartialClaims(savings, plans) {
   if(!plans||plans.length===0) return {};
-  const claims = {};
+  const categoryClaimed = {}; // key: `${entryId}:${category}` -> true once claimed
+  const claims = {}; // entryId -> total dollar amount claimed across all plans
+
   plans.forEach(plan=>{
     const start = parseLocalDate(plan.period_start);
     const cats = plan.categories||[];
@@ -1660,16 +1674,33 @@ function getGivingPartialClaims(savings, plans) {
       const d = parseLocalDate(s.date);
       if(d < start) return;
       const isReturn = s.type==="return";
+
       if(isReturn){
-        if(cats.includes("returns")) claims[s.id]=(claims[s.id]||0)+Number(s.saved);
+        const key = `${s.id}:returns`;
+        if(cats.includes("returns") && !categoryClaimed[key]){
+          categoryClaimed[key]=true;
+          claims[s.id]=(claims[s.id]||0)+Number(s.saved);
+        }
         return;
       }
+
       const tax = Number(s.saleTax)||0;
       const shopping = Number(s.shoppingSavings)||(tax?0:Number(s.saved));
-      let claimed = 0;
-      if(cats.includes("saleTax")) claimed += tax;
-      if(cats.includes("shopping")) claimed += shopping;
-      if(claimed>0) claims[s.id]=(claims[s.id]||0)+claimed;
+
+      if(cats.includes("saleTax") && tax>0){
+        const key = `${s.id}:saleTax`;
+        if(!categoryClaimed[key]){
+          categoryClaimed[key]=true;
+          claims[s.id]=(claims[s.id]||0)+tax;
+        }
+      }
+      if(cats.includes("shopping") && shopping>0){
+        const key = `${s.id}:shopping`;
+        if(!categoryClaimed[key]){
+          categoryClaimed[key]=true;
+          claims[s.id]=(claims[s.id]||0)+shopping;
+        }
+      }
     });
   });
   return claims;
@@ -1849,90 +1880,16 @@ function GivingModal({onClose,plan,savings,onSave,onDelete}) {
   );
 }
 
-function HomeScreen({user,savings,setSavings,addSaving,handleInvestAll,invested,setInvested,taxRate,stateCode,isDemo}) {
-  const [modal,setModal]=useState(null);const [toast,setToast]=useState(null);const [investing,setInvesting]=useState(false);
+function HomeScreen({user,savings,setSavings,addSaving,handleInvestAll,invested,setInvested,taxRate,stateCode,isDemo,givingPlans,givingModal,setGivingModal,saveGivingPlan,deleteGivingPlan,uninvested,onInvestClick,investing}) {
+  const [modal,setModal]=useState(null);const [toast,setToast]=useState(null);
   const showToast=msg=>{setToast(msg);setTimeout(()=>setToast(null),3000);};
   const handleAddSaving=async entry=>{ await addSaving(entry); showToast(`✓ $${entry.saved.toFixed(2)} saved from ${entry.store}!`); };
+  const handleInvestClick=async()=>{
+    const result = await onInvestClick();
+    if(result?.success) showToast(`🚀 $${result.amount.toFixed(2)} invested!`);
+    else if(result?.error) showToast(`⚠️ ${result.error}`);
+  };
   const [openDrop,setOpenDrop]=useState(null);
-  const [givingPlans,setGivingPlans]=useState([]);
-  const [givingModal,setGivingModal]=useState(null); // null | "new" | plan object
-
-  const loadGivingPlans=async()=>{
-    if(!user?.id||isDemo) return;
-    try {
-      const {data,error}=await supabase.from("giving_plans").select("*").eq("user_id",user.id).eq("status","active").order("created_at",{ascending:false});
-      if(!error&&data){
-        const stillActive = data.filter(p=>daysLeft(p)>0);
-        const expired = data.filter(p=>daysLeft(p)<=0);
-        if(expired.length>0){
-          await Promise.all(expired.map(p=>supabase.from("giving_plans").update({status:"completed"}).eq("id",p.id).eq("user_id",user.id)));
-        }
-        setGivingPlans(stillActive);
-      }
-    } catch(e){ console.error("Error loading giving plans:",e); }
-  };
-  useEffect(()=>{ loadGivingPlans(); },[user?.id]);
-
-  const claimedByGiving = computeTotalClaimedByGiving(savings, givingPlans);
-  const rawUninvested = savings.filter(s=>!s.invested).reduce((a,s)=>a+Number(s.saved),0);
-  const uninvested = parseFloat(Math.max(0, rawUninvested - claimedByGiving).toFixed(2));
-  const handleInvest=()=>{
-    if(uninvested<=0) return;
-    setInvesting(true);
-    setTimeout(async()=>{
-      try {
-        const partialClaims = getGivingPartialClaims(savings, givingPlans);
-        await handleInvestAll(uninvested, partialClaims);
-        showToast(`🚀 $${uninvested.toFixed(2)} invested!`);
-      } catch(e) {
-        showToast(`⚠️ ${e.message||"Investment failed. Try again."}`);
-      } finally {
-        setInvesting(false);
-      }
-    },1800);
-  };
-
-  const saveGivingPlan=async(planData)=>{
-    if(!user?.id||isDemo){
-      setGivingPlans(p=>[{...planData,id:Date.now(),period_start:localDateStr()},...p]);
-      return;
-    }
-    if(givingModal&&givingModal!=="new"){
-      const {error}=await supabase.from("giving_plans").update({
-        organization:planData.organization, categories:planData.categories, period_days:planData.period_days,
-      }).eq("id",givingModal.id).eq("user_id",user.id);
-      if(error) throw error;
-    } else {
-      const {error}=await supabase.from("giving_plans").insert([{
-        user_id:user.id, organization:planData.organization, categories:planData.categories,
-        period_days:planData.period_days, period_start:localDateStr(), status:"active",
-      }]);
-      if(error) throw error;
-    }
-    await loadGivingPlans();
-  };
-
-  const deleteGivingPlan=async(plan)=>{
-    const releasedAmount = computeGivingTotal(savings, plan);
-    if(!user?.id||isDemo){
-      setGivingPlans(p=>p.filter(x=>x.id!==plan.id));
-      setGivingModal(null);
-      if(releasedAmount>0){
-        try { await handleInvestAll(releasedAmount); showToast(`🚀 Plan canceled — $${releasedAmount.toFixed(2)} invested instead!`); }
-        catch(e){ showToast(`⚠️ ${e.message||"Investment failed. Try again."}`); }
-      }
-      return;
-    }
-    try {
-      await supabase.from("giving_plans").delete().eq("id",plan.id).eq("user_id",user.id);
-      await loadGivingPlans();
-      setGivingModal(null);
-      if(releasedAmount>0){
-        try { await handleInvestAll(releasedAmount); showToast(`🚀 Plan canceled — $${releasedAmount.toFixed(2)} invested instead!`); }
-        catch(e){ showToast(`⚠️ ${e.message||"Investment failed. Try again."}`); }
-      }
-    } catch(e) { console.error(e); }
-  };
 
   const toggleDrop=key=>setOpenDrop(o=>o===key?null:key);
   const [showFeedbackBanner,setShowFeedbackBanner]=useState(()=>localStorage.getItem("feedbackBannerDismissed")!=="true");
@@ -1951,7 +1908,7 @@ function HomeScreen({user,savings,setSavings,addSaving,handleInvestAll,invested,
             <span onClick={dismissFeedbackBanner} style={{fontSize:16,color:"#bbb",cursor:"pointer",flexShrink:0,padding:4}}>✕</span>
           </div>
         )}
-        <div className="invest-bar"><button className="invest-btn" onClick={handleInvest} disabled={uninvested<=0||investing}>{investing?<><span className="spinner" style={{borderColor:"rgba(26,26,46,0.2)",borderTopColor:"#1a1a2e"}}/>Investing…</>:`🚀 Invest $${uninvested.toFixed(2)} Now`}</button></div>
+        <div className="invest-bar"><button className="invest-btn" onClick={handleInvestClick} disabled={uninvested<=0||investing}>{investing?<><span className="spinner" style={{borderColor:"rgba(26,26,46,0.2)",borderTopColor:"#1a1a2e"}}/>Investing…</>:`🚀 Invest $${uninvested.toFixed(2)} Now`}</button></div>
         <div className="section">
           <div className="section-header"><div className="section-title">Add Savings</div></div>
 
@@ -2049,6 +2006,83 @@ export default function App() {
   const [riskId,setRiskId]=useState("medium");
   const [loadingData,setLoadingData]=useState(false);
   const [isDemo,setIsDemo]=useState(false);
+  const [givingPlans,setGivingPlans]=useState([]);
+  const [givingModal,setGivingModal]=useState(null); // null | "new" | plan object
+  const [investing,setInvesting]=useState(false);
+
+  const loadGivingPlans=async(userId)=>{
+    if(!userId||isDemo) return;
+    try {
+      const {data,error}=await supabase.from("giving_plans").select("*").eq("user_id",userId).eq("status","active").order("created_at",{ascending:false});
+      if(!error&&data){
+        const stillActive = data.filter(p=>daysLeft(p)>0);
+        const expired = data.filter(p=>daysLeft(p)<=0);
+        if(expired.length>0){
+          await Promise.all(expired.map(p=>supabase.from("giving_plans").update({status:"completed"}).eq("id",p.id).eq("user_id",userId)));
+        }
+        setGivingPlans(stillActive);
+      }
+    } catch(e){ console.error("Error loading giving plans:",e); }
+  };
+
+  const saveGivingPlan=async(planData)=>{
+    if(!user?.id||isDemo){
+      setGivingPlans(p=>[{...planData,id:Date.now(),period_start:localDateStr()},...p]);
+      return;
+    }
+    if(givingModal&&givingModal!=="new"){
+      const {error}=await supabase.from("giving_plans").update({
+        organization:planData.organization, categories:planData.categories, period_days:planData.period_days,
+      }).eq("id",givingModal.id).eq("user_id",user.id);
+      if(error) throw error;
+    } else {
+      const {error}=await supabase.from("giving_plans").insert([{
+        user_id:user.id, organization:planData.organization, categories:planData.categories,
+        period_days:planData.period_days, period_start:localDateStr(), status:"active",
+      }]);
+      if(error) throw error;
+    }
+    await loadGivingPlans(user.id);
+  };
+
+  const deleteGivingPlan=async(plan)=>{
+    const releasedAmount = computeGivingTotal(savings, plan);
+    if(!user?.id||isDemo){
+      setGivingPlans(p=>p.filter(x=>x.id!==plan.id));
+      setGivingModal(null);
+      if(releasedAmount>0) await handleInvestAll(releasedAmount);
+      return releasedAmount;
+    }
+    await supabase.from("giving_plans").delete().eq("id",plan.id).eq("user_id",user.id);
+    await loadGivingPlans(user.id);
+    setGivingModal(null);
+    if(releasedAmount>0) await handleInvestAll(releasedAmount);
+    return releasedAmount;
+  };
+
+  // Single source of truth for "how much is available to invest" — shared by
+  // BOTH the Home screen's Invest button and the Invest tab's Invest button.
+  const claimedByGiving = computeTotalClaimedByGiving(savings, givingPlans);
+  const rawUninvested = savings.filter(s=>!s.invested).reduce((a,s)=>a+Number(s.saved),0);
+  const uninvested = parseFloat(Math.max(0, rawUninvested - claimedByGiving).toFixed(2));
+
+  const onInvestClick=()=>{
+    if(uninvested<=0) return Promise.resolve();
+    setInvesting(true);
+    return new Promise(resolve=>{
+      setTimeout(async()=>{
+        try {
+          const partialClaims = getGivingPartialClaims(savings, givingPlans);
+          await handleInvestAll(uninvested, partialClaims);
+          resolve({success:true, amount:uninvested});
+        } catch(e) {
+          resolve({success:false, error:e.message||"Investment failed. Try again."});
+        } finally {
+          setInvesting(false);
+        }
+      },1800);
+    });
+  };
 
   // ── Demo mode: realistic sample data, always-positive gains ────────
   const loadDemoData=()=>{
@@ -2105,6 +2139,7 @@ export default function App() {
       const {data:prefs}=await supabase.from("user_prefs").select("risk_id,fixed_reserve").eq("user_id",userId).single();
       if(prefs?.risk_id) setRiskId(prefs.risk_id);
       if(prefs?.fixed_reserve) setFixedReserve(Number(prefs.fixed_reserve));
+      await loadGivingPlans(userId);
     } catch(e){ console.error(e); }
     finally { setLoadingData(false); }
   };
@@ -2169,7 +2204,7 @@ export default function App() {
     if(user?.id) {
       // Entries with nothing claimed against them: invest in full, as before.
       let query = supabase.from("savings").update({invested:true}).eq("user_id",user.id).eq("invested",false);
-      if(claimedIds.length>0) query = query.not("id","in",`(${claimedIds.map(id=>`"${id}"`).join(",")})`);
+      if(claimedIds.length>0) query = query.not("id","in",`(${claimedIds.join(",")})`);
       await query;
 
       // Entries partially claimed: shrink the original row to just the claimed
@@ -2254,9 +2289,9 @@ export default function App() {
     <>
       <style>{S}</style>
       <div className="app">
-        {tab==="home"&&<HomeScreen user={user} savings={savings} setSavings={setSavings} addSaving={addSaving} handleInvestAll={handleInvestAll} invested={invested} setInvested={setInvested} taxRate={taxRate} stateCode={stateCode} isDemo={isDemo}/>}
+        {tab==="home"&&<HomeScreen user={user} savings={savings} setSavings={setSavings} addSaving={addSaving} handleInvestAll={handleInvestAll} invested={invested} setInvested={setInvested} taxRate={taxRate} stateCode={stateCode} isDemo={isDemo} givingPlans={givingPlans} givingModal={givingModal} setGivingModal={setGivingModal} saveGivingPlan={saveGivingPlan} deleteGivingPlan={deleteGivingPlan} uninvested={uninvested} onInvestClick={onInvestClick} investing={investing}/>}
         {tab==="portfolio"&&<PortfolioScreen savings={savings} invested={invested}/>}
-        {tab==="invest"&&<InvestScreen invested={invested} riskId={riskId} onInvestAll={handleInvestAll} uninvested={savings.filter(s=>!s.invested).reduce((a,s)=>a+Number(s.saved),0)} fixedReserve={fixedReserve} onSetRisk={updateRiskId} isDemo={isDemo} getDemoPositions={getDemoPositions}/>}
+        {tab==="invest"&&<InvestScreen invested={invested} riskId={riskId} uninvested={uninvested} fixedReserve={fixedReserve} onSetRisk={updateRiskId} isDemo={isDemo} getDemoPositions={getDemoPositions} onInvestClick={onInvestClick} investing={investing}/>}
         {tab==="settings"&&<SettingsScreen user={user} onLogout={handleLogout} isDemo={isDemo}/>}
         <div className="bottom-nav">
           <div className={`nav-item${tab==="home"?" active":""}`} onClick={()=>setTab("home")}><span className="nav-icon">🏠</span>Home</div>
