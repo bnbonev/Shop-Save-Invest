@@ -1734,6 +1734,15 @@ function GivingModal({onClose,plan,savings,onSave,onMarkGiven}) {
 
         {error&&<div style={{background:"#fce4ec",border:"1px solid #f48fb1",borderRadius:10,padding:"10px 14px",fontSize:12,color:"#880e4f",marginBottom:12}}>{error}</div>}
 
+        {isEditing && remaining===0 && (
+          <div style={{background:"#fff8e1",border:"1px solid #ffe082",borderRadius:12,padding:"12px 14px",marginBottom:14,display:"flex",gap:10,alignItems:"flex-start"}}>
+            <span style={{fontSize:18,flexShrink:0}}>💌</span>
+            <div style={{fontSize:12,color:"#5d4037",lineHeight:1.5}}>
+              Your giving period is complete! Mail a check or pay <strong>${total.toFixed(2)}</strong> online to <strong>{plan.organization}</strong>, then tap "Mark as given" below.
+            </div>
+          </div>
+        )}
+
         <button className="sub-btn" style={{background:"#ad1457"}} disabled={!canSubmit||saving} onClick={submit}>
           {saving?"Saving…":isEditing?"Save changes":"Start giving plan →"}
         </button>
