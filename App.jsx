@@ -1696,14 +1696,21 @@ function GivingModal({onClose,plan,savings,onSave,onMarkGiven,onDelete}) {
               </div>
             )}
 
-            {remaining===0 && (
+            {remaining===0 ? (
               <div style={{background:"#fff8e1",border:"1px solid #ffe082",borderRadius:12,padding:"12px 14px",marginBottom:14,display:"flex",gap:10,alignItems:"flex-start"}}>
                 <span style={{fontSize:18,flexShrink:0}}>💌</span>
                 <div style={{fontSize:12,color:"#5d4037",lineHeight:1.5}}>
                   Your giving period is complete! Mail a check or pay <strong>${total.toFixed(2)}</strong> online to <strong>{plan.organization}</strong>, then let us know below what's next.
                 </div>
               </div>
-            )}
+            ) : remaining<=3 ? (
+              <div style={{background:"#fff8e1",border:"1px solid #ffe082",borderRadius:12,padding:"12px 14px",marginBottom:14,display:"flex",gap:10,alignItems:"flex-start"}}>
+                <span style={{fontSize:18,flexShrink:0}}>⏰</span>
+                <div style={{fontSize:12,color:"#5d4037",lineHeight:1.5}}>
+                  Your giving period ends in {remaining} day{remaining!==1?"s":""}. Get ready to send a check or pay <strong>${total.toFixed(2)}</strong> online to <strong>{plan.organization}</strong> — payment won't go automatically.
+                </div>
+              </div>
+            ) : null}
           </>
         )}
 
@@ -1942,7 +1949,9 @@ function HomeScreen({user,savings,setSavings,addSaving,handleInvestAll,invested,
                           <div style={{width:34,height:34,borderRadius:9,background:"#fff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:16}}>❤️</div>
                           <div>
                             <div style={{fontSize:13,fontWeight:600,color:"#72243e"}}>{plan.organization}</div>
-                            <div style={{fontSize:11,color:"#9c3963"}}>{remaining} day{remaining!==1?"s":""} left in this period</div>
+                            <div style={{fontSize:11,color:remaining<=3?"#e65100":"#9c3963",fontWeight:remaining<=3?700:400}}>
+                              {remaining===0?"⏰ Period ended — ":remaining<=3?"⏰ ":""}{remaining} day{remaining!==1?"s":""} left in this period
+                            </div>
                           </div>
                         </div>
                         <div style={{fontFamily:"'Playfair Display',serif",fontSize:18,fontWeight:700,color:"#72243e"}}>${total.toFixed(2)}</div>
