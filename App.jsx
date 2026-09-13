@@ -1645,9 +1645,13 @@ function computeTotalClaimedByGiving(savings, plans) {
 // selected). Entries that are only PARTIALLY claimed (e.g. just the sale-tax slice
 // of a mixed shopping+tax entry) are left investable for their remaining portion —
 // the dollar total is already correctly reduced by computeTotalClaimedByGiving.
-function getGivingClaimedIds(savings, plans) {
-  if(!plans||plans.length===0) return [];
-  const claimed = new Set();
+// For each savings entry that's claimed (fully or partially) by an active giving
+// plan, returns how much of it is still owed to giving: { [id]: claimedDollarAmount }.
+// This lets the invest flow split a mixed entry (e.g. Shopping + Sale Tax) so only
+// the un-claimed slice gets invested, leaving the claimed slice behind untouched.
+function getGivingPartialClaims(savings, plans) {
+  if(!plans||plans.length===0) return {};
+  const claims = {};
   plans.forEach(plan=>{
     const start = parseLocalDate(plan.period_start);
     const cats = plan.categories||[];
@@ -1657,17 +1661,18 @@ function getGivingClaimedIds(savings, plans) {
       if(d < start) return;
       const isReturn = s.type==="return";
       if(isReturn){
-        if(cats.includes("returns")) claimed.add(s.id);
+        if(cats.includes("returns")) claims[s.id]=(claims[s.id]||0)+Number(s.saved);
         return;
       }
-      const hasTax = Number(s.saleTax)>0;
-      const hasShopping = Number(s.shoppingSavings)>0 || !hasTax;
-      const taxClaimed = !hasTax || cats.includes("saleTax");
-      const shoppingClaimed = !hasShopping || cats.includes("shopping");
-      if(taxClaimed && shoppingClaimed) claimed.add(s.id);
+      const tax = Number(s.saleTax)||0;
+      const shopping = Number(s.shoppingSavings)||(tax?0:Number(s.saved));
+      let claimed = 0;
+      if(cats.includes("saleTax")) claimed += tax;
+      if(cats.includes("shopping")) claimed += shopping;
+      if(claimed>0) claims[s.id]=(claims[s.id]||0)+claimed;
     });
   });
-  return Array.from(claimed);
+  return claims;
 }
 
 // Parses a "YYYY-MM-DD" string as LOCAL midnight, not UTC midnight — avoids
@@ -1876,8 +1881,8 @@ function HomeScreen({user,savings,setSavings,addSaving,handleInvestAll,invested,
     setInvesting(true);
     setTimeout(async()=>{
       try {
-        const excludeIds = getGivingClaimedIds(savings, givingPlans);
-        await handleInvestAll(uninvested, excludeIds);
+        const partialClaims = getGivingPartialClaims(savings, givingPlans);
+        await handleInvestAll(uninvested, partialClaims);
         showToast(`🚀 $${uninvested.toFixed(2)} invested!`);
       } catch(e) {
         showToast(`⚠️ ${e.message||"Investment failed. Try again."}`);
@@ -2130,33 +2135,70 @@ export default function App() {
     }
   };
 
-  const handleInvestAll=async(amount, excludeIds=[])=>{
+  // partialClaims: { [savingsId]: dollarAmountStillOwedToGiving }
+  // For an entry only PARTIALLY claimed by a giving plan (e.g. a receipt with
+  // both Shopping Savings and Sale Tax, where only the tax portion is pledged),
+  // we split it: the claimed slice stays behind as its own smaller row, and only
+  // the remaining, un-claimed slice actually gets invested.
+  const handleInvestAll=async(amount, partialClaims={})=>{
     const profile=RISK_PROFILES.find(p=>p.id===riskId)||RISK_PROFILES[2];
-    const excludeSet = new Set(excludeIds);
+    const claimedIds = Object.keys(partialClaims);
+
     if(isDemo){
       // Demo mode never touches Alpaca or Supabase — purely simulated
       const cashPct=profile.allocations.find(a=>a.ticker==="CASH")?.pct||0;
       const cashReserve=parseFloat(((amount*cashPct)/100).toFixed(2));
       if(cashReserve>0) setFixedReserve(v=>parseFloat((v+cashReserve).toFixed(2)));
       setInvested(v=>parseFloat((v+amount).toFixed(2)));
-      setSavings(s=>s.map(x=>excludeSet.has(x.id)?x:({...x,invested:true})));
+      setSavings(s=>{
+        const out=[];
+        s.forEach(x=>{
+          const claimedAmt=partialClaims[x.id];
+          if(claimedAmt==null){ out.push(x.invested?x:{...x,invested:true}); return; }
+          const investedAmt=parseFloat((Number(x.saved)-claimedAmt).toFixed(2));
+          out.push({...x, saved:parseFloat(claimedAmt.toFixed(2))}); // remaining claimed slice, still uninvested
+          if(investedAmt>0) out.push({...x, id:x.id+"_inv", saved:investedAmt, invested:true}); // invested slice
+        });
+        return out;
+      });
       return;
     }
+
     const {cashReserve}=await investSavings(amount,profile); // throws if it fails — caller shows the error
+
     if(user?.id) {
+      // Entries with nothing claimed against them: invest in full, as before.
       let query = supabase.from("savings").update({invested:true}).eq("user_id",user.id).eq("invested",false);
-      if(excludeIds.length>0) query = query.not("id","in",`(${excludeIds.map(id=>`"${id}"`).join(",")})`);
+      if(claimedIds.length>0) query = query.not("id","in",`(${claimedIds.map(id=>`"${id}"`).join(",")})`);
       await query;
+
+      // Entries partially claimed: shrink the original row to just the claimed
+      // slice (left behind, still uninvested), and insert a new already-invested
+      // row for whatever portion got invested.
+      for(const id of claimedIds){
+        const entry = savings.find(x=>x.id===id);
+        if(!entry) continue;
+        const claimedAmt = parseFloat(Math.min(partialClaims[id], Number(entry.saved)).toFixed(2));
+        const investedAmt = parseFloat((Number(entry.saved)-claimedAmt).toFixed(2));
+        if(investedAmt>0){
+          await supabase.from("savings").insert([{
+            user_id:user.id, store:entry.store, item:entry.item, type:entry.type,
+            saved:investedAmt, date:entry.date, invested:true,
+          }]);
+        }
+        await supabase.from("savings").update({saved:claimedAmt}).eq("id",id).eq("user_id",user.id);
+      }
+
       if(cashReserve>0){
         const newReserve=parseFloat((fixedReserve+cashReserve).toFixed(2));
         await supabase.from("user_prefs").upsert({user_id:user.id,risk_id:riskId,fixed_reserve:newReserve},{onConflict:"user_id"});
         setFixedReserve(newReserve);
       }
+      await loadUserData(user.id);
     } else if(cashReserve>0) {
       setFixedReserve(v=>parseFloat((v+cashReserve).toFixed(2)));
     }
     setInvested(v=>v+amount);
-    setSavings(s=>s.map(x=>excludeSet.has(x.id)?x:({...x,invested:true})));
   };
 
   useEffect(()=>{
