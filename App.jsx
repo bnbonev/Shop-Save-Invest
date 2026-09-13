@@ -1601,12 +1601,12 @@ const GIVING_CATEGORIES = [
 
 function computeGivingTotal(savings, plan) {
   if(!plan) return 0;
-  const start = new Date(plan.period_start);
+  const start = parseLocalDate(plan.period_start);
   const cats = plan.categories||[];
   let total = 0;
   savings.forEach(s=>{
     if(!s.date) return;
-    const d = new Date(s.date);
+    const d = parseLocalDate(s.date);
     if(d < start) return;
     const isReturn = s.type==="return";
     const inCats =
@@ -1649,11 +1649,11 @@ function getGivingClaimedIds(savings, plans) {
   if(!plans||plans.length===0) return [];
   const claimed = new Set();
   plans.forEach(plan=>{
-    const start = new Date(plan.period_start);
+    const start = parseLocalDate(plan.period_start);
     const cats = plan.categories||[];
     savings.forEach(s=>{
       if(!s.date||s.invested) return;
-      const d = new Date(s.date);
+      const d = parseLocalDate(s.date);
       if(d < start) return;
       const isReturn = s.type==="return";
       if(isReturn){
@@ -1670,13 +1670,22 @@ function getGivingClaimedIds(savings, plans) {
   return Array.from(claimed);
 }
 
+// Parses a "YYYY-MM-DD" string as LOCAL midnight, not UTC midnight — avoids
+// the classic bug where new Date("2026-09-12") anchors to UTC and can read
+// as the previous day for anyone behind UTC (all of the Americas).
+function parseLocalDate(dateStr) {
+  const [y,m,d] = dateStr.split("-").map(Number);
+  return new Date(y, m-1, d);
+}
+
 function daysLeft(plan) {
   if(!plan) return 0;
-  const start = new Date(plan.period_start);
+  const start = parseLocalDate(plan.period_start);
   const end = new Date(start);
   end.setDate(end.getDate()+plan.period_days);
   const now = new Date();
-  const diff = Math.ceil((end-now)/(1000*60*60*24));
+  now.setHours(0,0,0,0); // compare calendar days, not time-of-day
+  const diff = Math.round((end-now)/(1000*60*60*24));
   return Math.max(0, diff);
 }
 
@@ -1697,8 +1706,8 @@ function GivingModal({onClose,plan,savings,onSave,onDelete}) {
     let sum=0;
     savings.forEach(s=>{
       if(!s.date) return;
-      const d=new Date(s.date);
-      if(d < new Date(plan.period_start)) return;
+      const d=parseLocalDate(s.date);
+      if(d < parseLocalDate(plan.period_start)) return;
       const isReturn = s.type==="return";
       if(c.key==="returns" && isReturn) sum+=Number(s.saved);
       if(c.key==="saleTax" && !isReturn) sum+=Number(s.saleTax)||0;
