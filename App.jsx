@@ -1618,6 +1618,48 @@ function computeGivingTotal(savings, plan) {
   return parseFloat(total.toFixed(2));
 }
 
+// Total across ALL active giving plans — this is money that's earmarked to give,
+// and should not also be offered up to invest.
+function computeTotalClaimedByGiving(savings, plans) {
+  if(!plans||plans.length===0) return 0;
+  const total = plans.reduce((sum,plan)=>sum+computeGivingTotal(savings,plan),0);
+  return parseFloat(total.toFixed(2));
+}
+
+// IDs of savings entries claimed by ANY active giving plan — used to exclude
+// them from "Invest Now" so the same dollar isn't both invested and donated.
+// IDs of savings entries FULLY claimed by an active giving plan — used to exclude
+// them from "Invest Now" so the same dollar isn't both invested and donated.
+// An entry only counts as "fully" claimed if the entire saved amount is covered
+// (e.g. a return with "returns" selected, or a shopping-only entry with "shopping"
+// selected). Entries that are only PARTIALLY claimed (e.g. just the sale-tax slice
+// of a mixed shopping+tax entry) are left investable for their remaining portion —
+// the dollar total is already correctly reduced by computeTotalClaimedByGiving.
+function getGivingClaimedIds(savings, plans) {
+  if(!plans||plans.length===0) return [];
+  const claimed = new Set();
+  plans.forEach(plan=>{
+    const start = new Date(plan.period_start);
+    const cats = plan.categories||[];
+    savings.forEach(s=>{
+      if(!s.date||s.invested) return;
+      const d = new Date(s.date);
+      if(d < start) return;
+      const isReturn = s.type==="return";
+      if(isReturn){
+        if(cats.includes("returns")) claimed.add(s.id);
+        return;
+      }
+      const hasTax = Number(s.saleTax)>0;
+      const hasShopping = Number(s.shoppingSavings)>0 || !hasTax;
+      const taxClaimed = !hasTax || cats.includes("saleTax");
+      const shoppingClaimed = !hasShopping || cats.includes("shopping");
+      if(taxClaimed && shoppingClaimed) claimed.add(s.id);
+    });
+  });
+  return Array.from(claimed);
+}
+
 function daysLeft(plan) {
   if(!plan) return 0;
   const start = new Date(plan.period_start);
@@ -1675,6 +1717,13 @@ function GivingModal({onClose,plan,savings,onSave,onDelete}) {
       <div className="modal">
         <div className="modal-handle"/>
 
+        <div style={{background:"#fff8e1",border:"1px solid #ffe082",borderRadius:12,padding:"12px 14px",marginBottom:16,display:"flex",gap:10,alignItems:"flex-start"}}>
+          <span style={{fontSize:18,flexShrink:0}}>ℹ️</span>
+          <div style={{fontSize:12,color:"#5d4037",lineHeight:1.5}}>
+            <strong>Payment will not go automatically.</strong> At the end of the giving period, please send a check to, or pay online, the selected organization.
+          </div>
+        </div>
+
         {isEditing && (
           <>
             <div style={{textAlign:"center",padding:"4px 0 16px"}}>
@@ -1724,15 +1773,6 @@ function GivingModal({onClose,plan,savings,onSave,onDelete}) {
         {showEditForm && (
           <>
             <div className="modal-title">{isEditing?"Plan settings":"Set up a giving plan"}</div>
-
-            {!isEditing && (
-              <div style={{background:"#fff8e1",border:"1px solid #ffe082",borderRadius:12,padding:"12px 14px",marginBottom:16,display:"flex",gap:10,alignItems:"flex-start"}}>
-                <span style={{fontSize:18,flexShrink:0}}>ℹ️</span>
-                <div style={{fontSize:12,color:"#5d4037",lineHeight:1.5}}>
-                  <strong>Payment will not go automatically.</strong> At the end of the giving period, please send a check to, or pay online, the selected organization.
-                </div>
-              </div>
-            )}
 
             <div className="field">
               <label>1. Which organization?</label>
@@ -1789,22 +1829,8 @@ function HomeScreen({user,savings,setSavings,addSaving,handleInvestAll,invested,
   const [modal,setModal]=useState(null);const [toast,setToast]=useState(null);const [investing,setInvesting]=useState(false);
   const showToast=msg=>{setToast(msg);setTimeout(()=>setToast(null),3000);};
   const handleAddSaving=async entry=>{ await addSaving(entry); showToast(`✓ $${entry.saved.toFixed(2)} saved from ${entry.store}!`); };
-  const uninvested=savings.filter(s=>!s.invested).reduce((a,s)=>a+Number(s.saved),0);
-  const handleInvest=()=>{
-    if(uninvested<=0) return;
-    setInvesting(true);
-    setTimeout(async()=>{
-      try {
-        await handleInvestAll(uninvested);
-        showToast(`🚀 $${uninvested.toFixed(2)} invested!`);
-      } catch(e) {
-        showToast(`⚠️ ${e.message||"Investment failed. Try again."}`);
-      } finally {
-        setInvesting(false);
-      }
-    },1800);
-  };
   const [openDrop,setOpenDrop]=useState(null);
+  const [givingPlans,setGivingPlans]=useState([]);
   const [givingPlans,setGivingPlans]=useState([]);
   const [givingModal,setGivingModal]=useState(null); // null | "new" | plan object
 
@@ -1823,6 +1849,25 @@ function HomeScreen({user,savings,setSavings,addSaving,handleInvestAll,invested,
     } catch(e){ console.error("Error loading giving plans:",e); }
   };
   useEffect(()=>{ loadGivingPlans(); },[user?.id]);
+
+  const claimedByGiving = computeTotalClaimedByGiving(savings, givingPlans);
+  const rawUninvested = savings.filter(s=>!s.invested).reduce((a,s)=>a+Number(s.saved),0);
+  const uninvested = parseFloat(Math.max(0, rawUninvested - claimedByGiving).toFixed(2));
+  const handleInvest=()=>{
+    if(uninvested<=0) return;
+    setInvesting(true);
+    setTimeout(async()=>{
+      try {
+        const excludeIds = getGivingClaimedIds(savings, givingPlans);
+        await handleInvestAll(uninvested, excludeIds);
+        showToast(`🚀 $${uninvested.toFixed(2)} invested!`);
+      } catch(e) {
+        showToast(`⚠️ ${e.message||"Investment failed. Try again."}`);
+      } finally {
+        setInvesting(false);
+      }
+    },1800);
+  };
 
   const saveGivingPlan=async(planData)=>{
     if(!user?.id||isDemo){
@@ -1845,15 +1890,24 @@ function HomeScreen({user,savings,setSavings,addSaving,handleInvestAll,invested,
   };
 
   const deleteGivingPlan=async(plan)=>{
+    const releasedAmount = computeGivingTotal(savings, plan);
     if(!user?.id||isDemo){
       setGivingPlans(p=>p.filter(x=>x.id!==plan.id));
       setGivingModal(null);
+      if(releasedAmount>0){
+        try { await handleInvestAll(releasedAmount); showToast(`🚀 Plan canceled — $${releasedAmount.toFixed(2)} invested instead!`); }
+        catch(e){ showToast(`⚠️ ${e.message||"Investment failed. Try again."}`); }
+      }
       return;
     }
     try {
       await supabase.from("giving_plans").delete().eq("id",plan.id).eq("user_id",user.id);
       await loadGivingPlans();
       setGivingModal(null);
+      if(releasedAmount>0){
+        try { await handleInvestAll(releasedAmount); showToast(`🚀 Plan canceled — $${releasedAmount.toFixed(2)} invested instead!`); }
+        catch(e){ showToast(`⚠️ ${e.message||"Investment failed. Try again."}`); }
+      }
     } catch(e) { console.error(e); }
   };
 
@@ -2058,20 +2112,23 @@ export default function App() {
     }
   };
 
-  const handleInvestAll=async(amount)=>{
+  const handleInvestAll=async(amount, excludeIds=[])=>{
     const profile=RISK_PROFILES.find(p=>p.id===riskId)||RISK_PROFILES[2];
+    const excludeSet = new Set(excludeIds);
     if(isDemo){
       // Demo mode never touches Alpaca or Supabase — purely simulated
       const cashPct=profile.allocations.find(a=>a.ticker==="CASH")?.pct||0;
       const cashReserve=parseFloat(((amount*cashPct)/100).toFixed(2));
       if(cashReserve>0) setFixedReserve(v=>parseFloat((v+cashReserve).toFixed(2)));
       setInvested(v=>parseFloat((v+amount).toFixed(2)));
-      setSavings(s=>s.map(x=>({...x,invested:true})));
+      setSavings(s=>s.map(x=>excludeSet.has(x.id)?x:({...x,invested:true})));
       return;
     }
     const {cashReserve}=await investSavings(amount,profile); // throws if it fails — caller shows the error
     if(user?.id) {
-      await supabase.from("savings").update({invested:true}).eq("user_id",user.id).eq("invested",false);
+      let query = supabase.from("savings").update({invested:true}).eq("user_id",user.id).eq("invested",false);
+      if(excludeIds.length>0) query = query.not("id","in",`(${excludeIds.map(id=>`"${id}"`).join(",")})`);
+      await query;
       if(cashReserve>0){
         const newReserve=parseFloat((fixedReserve+cashReserve).toFixed(2));
         await supabase.from("user_prefs").upsert({user_id:user.id,risk_id:riskId,fixed_reserve:newReserve},{onConflict:"user_id"});
@@ -2081,7 +2138,7 @@ export default function App() {
       setFixedReserve(v=>parseFloat((v+cashReserve).toFixed(2)));
     }
     setInvested(v=>v+amount);
-    setSavings(s=>s.map(x=>({...x,invested:true})));
+    setSavings(s=>s.map(x=>excludeSet.has(x.id)?x:({...x,invested:true})));
   };
 
   useEffect(()=>{
