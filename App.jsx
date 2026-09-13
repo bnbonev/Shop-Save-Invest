@@ -1628,7 +1628,7 @@ function daysLeft(plan) {
   return Math.max(0, diff);
 }
 
-function GivingModal({onClose,plan,savings,onSave,onMarkGiven}) {
+function GivingModal({onClose,plan,savings,onSave,onMarkGiven,onDelete}) {
   const isEditing = !!plan;
   const [organization,setOrganization]=useState(plan?.organization||"");
   const [categories,setCategories]=useState(plan?.categories||[]);
@@ -1738,7 +1738,7 @@ function GivingModal({onClose,plan,savings,onSave,onMarkGiven}) {
           <div style={{background:"#fff8e1",border:"1px solid #ffe082",borderRadius:12,padding:"12px 14px",marginBottom:14,display:"flex",gap:10,alignItems:"flex-start"}}>
             <span style={{fontSize:18,flexShrink:0}}>💌</span>
             <div style={{fontSize:12,color:"#5d4037",lineHeight:1.5}}>
-              Your giving period is complete! Mail a check or pay <strong>${total.toFixed(2)}</strong> online to <strong>{plan.organization}</strong>, then tap "Mark as given" below.
+              Your giving period is complete! Mail a check or pay <strong>${total.toFixed(2)}</strong> online to <strong>{plan.organization}</strong>, then let us know below what's next.
             </div>
           </div>
         )}
@@ -1748,9 +1748,18 @@ function GivingModal({onClose,plan,savings,onSave,onMarkGiven}) {
         </button>
 
         {isEditing && (
-          <button onClick={()=>onMarkGiven(plan)} style={{width:"100%",background:"none",border:"1px dashed #d4a5b8",color:"#ad1457",borderRadius:12,padding:12,fontSize:13,cursor:"pointer",marginTop:10,fontFamily:"'DM Sans',sans-serif"}}>
-            ✓ Mark as given — start a new period
-          </button>
+          <>
+            <div style={{fontSize:12,color:"#888",textAlign:"center",marginBottom:8}}>Already gave? Let us know what's next:</div>
+            <button onClick={()=>onMarkGiven(plan,true)} style={{width:"100%",background:"#ad1457",color:"#fff",border:"none",borderRadius:12,padding:12,fontSize:13,fontWeight:600,cursor:"pointer",marginBottom:8,fontFamily:"'DM Sans',sans-serif"}}>
+              ✓ Given — start a new {plan.period_days}-day period
+            </button>
+            <button onClick={()=>onMarkGiven(plan,false)} style={{width:"100%",background:"none",border:"1px dashed #d4a5b8",color:"#ad1457",borderRadius:12,padding:12,fontSize:13,cursor:"pointer",marginBottom:16,fontFamily:"'DM Sans',sans-serif"}}>
+              ✓ Given — end this giving plan
+            </button>
+            <div style={{textAlign:"center"}}>
+              <span onClick={()=>onDelete(plan)} style={{fontSize:12,color:"#aaa",cursor:"pointer",textDecoration:"underline"}}>Delete this plan</span>
+            </div>
+          </>
         )}
       </div>
     </div>
@@ -1809,17 +1818,39 @@ function HomeScreen({user,savings,setSavings,addSaving,handleInvestAll,invested,
     await loadGivingPlans();
   };
 
-  const markGivingAsGiven=async(plan)=>{
+  const markGivingAsGiven=async(plan,startNew)=>{
     if(!user?.id||isDemo){
-      setGivingPlans(p=>p.map(x=>x.id===plan.id?{...x,period_start:new Date().toISOString().split("T")[0]}:x));
+      if(startNew){
+        setGivingPlans(p=>p.map(x=>x.id===plan.id?{...x,period_start:new Date().toISOString().split("T")[0]}:x));
+      } else {
+        setGivingPlans(p=>p.filter(x=>x.id!==plan.id));
+      }
+      setGivingModal(null);
+      showToast(`🙏 Thanks for giving to ${plan.organization}!`);
+      return;
+    }
+    try {
+      if(startNew){
+        await supabase.from("giving_plans").update({period_start:new Date().toISOString().split("T")[0]}).eq("id",plan.id).eq("user_id",user.id);
+      } else {
+        await supabase.from("giving_plans").update({status:"completed"}).eq("id",plan.id).eq("user_id",user.id);
+      }
+      await loadGivingPlans();
+      setGivingModal(null);
+      showToast(`🙏 Thanks for giving to ${plan.organization}!`);
+    } catch(e) { console.error(e); }
+  };
+
+  const deleteGivingPlan=async(plan)=>{
+    if(!user?.id||isDemo){
+      setGivingPlans(p=>p.filter(x=>x.id!==plan.id));
       setGivingModal(null);
       return;
     }
     try {
-      await supabase.from("giving_plans").update({period_start:new Date().toISOString().split("T")[0]}).eq("id",plan.id).eq("user_id",user.id);
+      await supabase.from("giving_plans").delete().eq("id",plan.id).eq("user_id",user.id);
       await loadGivingPlans();
       setGivingModal(null);
-      showToast(`🙏 Thanks for giving to ${plan.organization}!`);
     } catch(e) { console.error(e); }
   };
 
@@ -1917,7 +1948,7 @@ function HomeScreen({user,savings,setSavings,addSaving,handleInvestAll,invested,
       {modal==="tax"&&<TaxModal onClose={()=>setModal(null)} onSave={handleAddSaving} taxRate={taxRate} stateCode={stateCode}/>}
       {modal==="return"&&<ReturnModal onClose={()=>setModal(null)} onSave={handleAddSaving}/>}
       {modal==="returnEmail"&&<ReturnEmailModal onClose={()=>setModal(null)} onSave={handleAddSaving}/>}
-      {givingModal&&<GivingModal onClose={()=>setGivingModal(null)} plan={givingModal==="new"?null:givingModal} savings={savings} onSave={saveGivingPlan} onMarkGiven={markGivingAsGiven}/>}
+      {givingModal&&<GivingModal onClose={()=>setGivingModal(null)} plan={givingModal==="new"?null:givingModal} savings={savings} onSave={saveGivingPlan} onMarkGiven={markGivingAsGiven} onDelete={deleteGivingPlan}/>}
       {toast&&<div className="toast">{toast}</div>}
     </>
   );
