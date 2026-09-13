@@ -98,6 +98,16 @@ const STATE_TAX_RATES = {
   WV:0.06,WI:0.05,WY:0.04,
 };
 // ── Helpers ───────────────────────────────────────────────────────
+// Returns YYYY-MM-DD using the LOCAL calendar date, not UTC — avoids the
+// classic bug where toISOString() rolls the date forward/back a day for
+// anyone not in UTC (e.g. evening in the US becomes "tomorrow" in UTC).
+function localDateStr(d = new Date()) {
+  const year = d.getFullYear();
+  const month = String(d.getMonth()+1).padStart(2,"0");
+  const day = String(d.getDate()).padStart(2,"0");
+  return `${year}-${month}-${day}`;
+}
+
 async function detectStateFromCoords(lat,lon) {
   try {
     const r = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json`);
@@ -1831,7 +1841,6 @@ function HomeScreen({user,savings,setSavings,addSaving,handleInvestAll,invested,
   const handleAddSaving=async entry=>{ await addSaving(entry); showToast(`✓ $${entry.saved.toFixed(2)} saved from ${entry.store}!`); };
   const [openDrop,setOpenDrop]=useState(null);
   const [givingPlans,setGivingPlans]=useState([]);
-  const [givingPlans,setGivingPlans]=useState([]);
   const [givingModal,setGivingModal]=useState(null); // null | "new" | plan object
 
   const loadGivingPlans=async()=>{
@@ -1871,7 +1880,7 @@ function HomeScreen({user,savings,setSavings,addSaving,handleInvestAll,invested,
 
   const saveGivingPlan=async(planData)=>{
     if(!user?.id||isDemo){
-      setGivingPlans(p=>[{...planData,id:Date.now(),period_start:new Date().toISOString().split("T")[0]},...p]);
+      setGivingPlans(p=>[{...planData,id:Date.now(),period_start:localDateStr()},...p]);
       return;
     }
     if(givingModal&&givingModal!=="new"){
@@ -1882,7 +1891,7 @@ function HomeScreen({user,savings,setSavings,addSaving,handleInvestAll,invested,
     } else {
       const {error}=await supabase.from("giving_plans").insert([{
         user_id:user.id, organization:planData.organization, categories:planData.categories,
-        period_days:planData.period_days, period_start:new Date().toISOString().split("T")[0], status:"active",
+        period_days:planData.period_days, period_start:localDateStr(), status:"active",
       }]);
       if(error) throw error;
     }
@@ -2030,7 +2039,7 @@ export default function App() {
   // ── Demo mode: realistic sample data, always-positive gains ────────
   const loadDemoData=()=>{
     const today=new Date();
-    const daysAgo=n=>{ const d=new Date(today); d.setDate(d.getDate()-n); return d.toISOString().split("T")[0]; };
+    const daysAgo=n=>{ const d=new Date(today); d.setDate(d.getDate()-n); return localDateStr(d); };
     const demoSavings=[
       {id:"d1",store:"Publix",item:"Publix Savings",type:"sale",saved:12.48,shoppingSavings:10.64,saleTax:1.84,date:daysAgo(2),invested:true},
       {id:"d2",store:"Target",item:"Target Savings",type:"sale",saved:8.50,shoppingSavings:8.50,saleTax:0,date:daysAgo(5),invested:true},
@@ -2093,11 +2102,11 @@ export default function App() {
         type:entry.type,saved:entry.saved,
         shoppingSavings:entry.shoppingSavings??null,
         saleTax:entry.saleTax??null,
-        date:new Date().toISOString().split("T")[0],invested:false
+        date:localDateStr(),invested:false
       }]).select().single();
       if(data) { setSavings(s=>[data,...s]); return; }
     }
-    setSavings(s=>[{...entry,id:Date.now(),date:new Date().toISOString().split("T")[0],invested:false},...s]);
+    setSavings(s=>[{...entry,id:Date.now(),date:localDateStr(),invested:false},...s]);
   };
 
   const updateRiskId=async(newRiskId)=>{
