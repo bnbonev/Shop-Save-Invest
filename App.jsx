@@ -491,6 +491,9 @@ const S = `
 `;
 
 // ── Risk Profiles ─────────────────────────────────────────────────
+// ── Available stores for Weekly Deals ────────────────────────────
+const AVAILABLE_STORES = ["Publix","Whole Foods","Aldi","Fresh Market","Target","Kroger"];
+
 const RISK_PROFILES = [
   {
     id:"high", label:"High", emoji:"🔴",
@@ -1579,6 +1582,172 @@ function SettingsScreen({user,onLogout,isDemo}) {
   );
 }
 
+// ── Giving Plan Modal ────────────────────────────────────────────
+const GIVING_CATEGORIES = [
+  {key:"shopping", label:"Shopping Savings", icon:"🛍️"},
+  {key:"saleTax",  label:"Sale Tax Savings", icon:"🧾"},
+  {key:"returns",  label:"Item Returns",     icon:"🔄"},
+];
+
+function computeGivingTotal(savings, plan) {
+  if(!plan) return 0;
+  const start = new Date(plan.period_start);
+  const cats = plan.categories||[];
+  let total = 0;
+  savings.forEach(s=>{
+    if(!s.date) return;
+    const d = new Date(s.date);
+    if(d < start) return;
+    const isReturn = s.type==="return";
+    const inCats =
+      (cats.includes("returns") && isReturn) ||
+      (cats.includes("saleTax") && !isReturn && Number(s.saleTax)>0) ||
+      (cats.includes("shopping") && !isReturn);
+    if(inCats){
+      if(cats.includes("saleTax") && !cats.includes("shopping") && !isReturn){
+        total += Number(s.saleTax)||0;
+      } else if(cats.includes("shopping") && !cats.includes("saleTax") && !isReturn){
+        total += Number(s.shoppingSavings) || (Number(s.saleTax)?0:Number(s.saved));
+      } else if(!isReturn){
+        total += Number(s.saved);
+      } else {
+        total += Number(s.saved);
+      }
+    }
+  });
+  return parseFloat(total.toFixed(2));
+}
+
+function daysLeft(plan) {
+  if(!plan) return 0;
+  const start = new Date(plan.period_start);
+  const end = new Date(start);
+  end.setDate(end.getDate()+plan.period_days);
+  const now = new Date();
+  const diff = Math.ceil((end-now)/(1000*60*60*24));
+  return Math.max(0, diff);
+}
+
+function GivingModal({onClose,plan,savings,onSave,onMarkGiven}) {
+  const isEditing = !!plan;
+  const [organization,setOrganization]=useState(plan?.organization||"");
+  const [categories,setCategories]=useState(plan?.categories||["saleTax","returns"]);
+  const [periodDays,setPeriodDays]=useState(plan?.period_days||30);
+  const [saving,setSaving]=useState(false);
+  const [error,setError]=useState(null);
+
+  const toggleCategory = key => setCategories(c=>c.includes(key)?c.filter(x=>x!==key):[...c,key]);
+
+  const total = isEditing ? computeGivingTotal(savings, plan) : 0;
+  const remaining = isEditing ? daysLeft(plan) : 0;
+  const catTotals = isEditing ? GIVING_CATEGORIES.map(c=>{
+    let sum=0;
+    savings.forEach(s=>{
+      if(!s.date) return;
+      const d=new Date(s.date);
+      if(d < new Date(plan.period_start)) return;
+      const isReturn = s.type==="return";
+      if(c.key==="returns" && isReturn) sum+=Number(s.saved);
+      if(c.key==="saleTax" && !isReturn) sum+=Number(s.saleTax)||0;
+      if(c.key==="shopping" && !isReturn) sum+=Number(s.shoppingSavings)||(Number(s.saleTax)?0:Number(s.saved));
+    });
+    return {...c, sum:parseFloat(sum.toFixed(2))};
+  }).filter(c=>plan.categories.includes(c.key) && c.sum>0) : [];
+
+  const canSubmit = organization.trim() && categories.length>0;
+
+  const submit = async () => {
+    if(!canSubmit) return;
+    setSaving(true); setError(null);
+    try {
+      await onSave({organization:organization.trim(), categories, period_days:periodDays});
+      onClose();
+    } catch(e) {
+      setError(e.message||"Something went wrong. Please try again.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="overlay" onClick={e=>e.target===e.currentTarget&&onClose()}>
+      <div className="modal">
+        <div className="modal-handle"/>
+
+        {isEditing && (
+          <>
+            <div style={{textAlign:"center",padding:"4px 0 16px"}}>
+              <div style={{fontSize:28}}>❤️</div>
+              <div style={{fontSize:11,letterSpacing:0.5,color:"#ad1457",fontWeight:700,marginTop:8,textTransform:"uppercase"}}>{plan.organization}</div>
+              <div style={{fontFamily:"'Playfair Display',serif",fontSize:28,fontWeight:700,color:"#d4af37",marginTop:4}}>${total.toFixed(2)}</div>
+              <div style={{fontSize:12,color:"#888",marginTop:2}}>{remaining} day{remaining!==1?"s":""} left in this {plan.period_days}-day period</div>
+            </div>
+
+            {catTotals.length>0 && (
+              <div style={{background:"#fff",border:"0.5px solid #e8e4dc",borderRadius:12,padding:14,marginBottom:14}}>
+                <div style={{fontSize:11,color:"#888",marginBottom:8}}>Where this came from</div>
+                {catTotals.map(c=>(
+                  <div key={c.key} style={{display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:4}}>
+                    <span style={{color:"#1a1a2e"}}>{c.icon} {c.label}</span>
+                    <span style={{color:"#1a1a2e",fontWeight:600}}>${c.sum.toFixed(2)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
+        <div className="modal-title">{isEditing?"Plan settings":"Set up a giving plan"}</div>
+
+        <div className="field">
+          <label>1. Which organization?</label>
+          <input placeholder="e.g. American Red Cross" value={organization} onChange={e=>setOrganization(e.target.value)}/>
+        </div>
+
+        <div className="field">
+          <label>2. Which savings should count?</label>
+          <div style={{display:"flex",flexDirection:"column",gap:8,marginTop:6}}>
+            {GIVING_CATEGORIES.map(c=>(
+              <div key={c.key} onClick={()=>toggleCategory(c.key)}
+                style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:"#fff",border:`1.5px solid ${categories.includes(c.key)?"#ad1457":"#e8e4dc"}`,borderRadius:10,padding:"12px 14px",cursor:"pointer"}}>
+                <div style={{display:"flex",alignItems:"center",gap:10}}>
+                  <span style={{fontSize:16}}>{c.icon}</span>
+                  <span style={{fontSize:13,color:"#1a1a2e"}}>{c.label}</span>
+                </div>
+                <input type="checkbox" checked={categories.includes(c.key)} onChange={()=>{}} style={{width:16,height:16,accentColor:"#ad1457"}}/>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="field">
+          <label>3. How long is the giving period?</label>
+          <div style={{display:"flex",gap:8,marginTop:6}}>
+            {[15,30,60].map(d=>(
+              <button key={d} onClick={()=>setPeriodDays(d)}
+                style={{flex:1,textAlign:"center",background:periodDays===d?"#1a1a2e":"#fff",border:`1px solid ${periodDays===d?"#1a1a2e":"#e8e4dc"}`,borderRadius:10,padding:"12px 8px",cursor:"pointer",fontSize:13,color:periodDays===d?"#fff":"#888",fontWeight:periodDays===d?600:400}}>
+                {d} days
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {error&&<div style={{background:"#fce4ec",border:"1px solid #f48fb1",borderRadius:10,padding:"10px 14px",fontSize:12,color:"#880e4f",marginBottom:12}}>{error}</div>}
+
+        <button className="sub-btn" style={{background:"#ad1457"}} disabled={!canSubmit||saving} onClick={submit}>
+          {saving?"Saving…":isEditing?"Save changes":"Start giving plan →"}
+        </button>
+
+        {isEditing && (
+          <button onClick={()=>onMarkGiven(plan)} style={{width:"100%",background:"none",border:"1px dashed #d4a5b8",color:"#ad1457",borderRadius:12,padding:12,fontSize:13,cursor:"pointer",marginTop:10,fontFamily:"'DM Sans',sans-serif"}}>
+            ✓ Mark as given — start a new period
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function HomeScreen({user,savings,setSavings,addSaving,handleInvestAll,invested,setInvested,taxRate,stateCode,isDemo}) {
   const [modal,setModal]=useState(null);const [toast,setToast]=useState(null);const [investing,setInvesting]=useState(false);
   const showToast=msg=>{setToast(msg);setTimeout(()=>setToast(null),3000);};
@@ -1599,6 +1768,52 @@ function HomeScreen({user,savings,setSavings,addSaving,handleInvestAll,invested,
     },1800);
   };
   const [openDrop,setOpenDrop]=useState(null);
+  const [givingPlans,setGivingPlans]=useState([]);
+  const [givingModal,setGivingModal]=useState(null); // null | "new" | plan object
+
+  const loadGivingPlans=async()=>{
+    if(!user?.id||isDemo) return;
+    try {
+      const {data,error}=await supabase.from("giving_plans").select("*").eq("user_id",user.id).eq("status","active").order("created_at",{ascending:false});
+      if(!error&&data) setGivingPlans(data);
+    } catch(e){ console.error("Error loading giving plans:",e); }
+  };
+  useEffect(()=>{ loadGivingPlans(); },[user?.id]);
+
+  const saveGivingPlan=async(planData)=>{
+    if(!user?.id||isDemo){
+      setGivingPlans(p=>[{...planData,id:Date.now(),period_start:new Date().toISOString().split("T")[0]},...p]);
+      return;
+    }
+    if(givingModal&&givingModal!=="new"){
+      const {error}=await supabase.from("giving_plans").update({
+        organization:planData.organization, categories:planData.categories, period_days:planData.period_days,
+      }).eq("id",givingModal.id).eq("user_id",user.id);
+      if(error) throw error;
+    } else {
+      const {error}=await supabase.from("giving_plans").insert([{
+        user_id:user.id, organization:planData.organization, categories:planData.categories,
+        period_days:planData.period_days, period_start:new Date().toISOString().split("T")[0], status:"active",
+      }]);
+      if(error) throw error;
+    }
+    await loadGivingPlans();
+  };
+
+  const markGivingAsGiven=async(plan)=>{
+    if(!user?.id||isDemo){
+      setGivingPlans(p=>p.map(x=>x.id===plan.id?{...x,period_start:new Date().toISOString().split("T")[0]}:x));
+      setGivingModal(null);
+      return;
+    }
+    try {
+      await supabase.from("giving_plans").update({period_start:new Date().toISOString().split("T")[0]}).eq("id",plan.id).eq("user_id",user.id);
+      await loadGivingPlans();
+      setGivingModal(null);
+      showToast(`🙏 Thanks for giving to ${plan.organization}!`);
+    } catch(e) { console.error(e); }
+  };
+
   const toggleDrop=key=>setOpenDrop(o=>o===key?null:key);
   const [showFeedbackBanner,setShowFeedbackBanner]=useState(()=>localStorage.getItem("feedbackBannerDismissed")!=="true");
   const dismissFeedbackBanner=()=>{ localStorage.setItem("feedbackBannerDismissed","true"); setShowFeedbackBanner(false); };
@@ -1644,6 +1859,44 @@ function HomeScreen({user,savings,setSavings,addSaving,handleInvestAll,invested,
             </div>}
           </div>
         </div>
+
+        {!isDemo && (
+          <div className="section" style={{paddingTop:16}}>
+            <div className="section-header"><div className="section-title">Giving</div></div>
+            {givingPlans.length===0 ? (
+              <div onClick={()=>setGivingModal("new")} style={{background:"#fff",border:"1px dashed #d4a5b8",borderRadius:12,padding:"20px 14px",textAlign:"center",cursor:"pointer"}}>
+                <div style={{fontSize:22,color:"#ad1457"}}>❤️</div>
+                <div style={{fontSize:13,fontWeight:600,color:"#1a1a2e",marginTop:8}}>Give back with your savings</div>
+                <div style={{fontSize:12,color:"#888",marginTop:4,lineHeight:1.5}}>Direct part of your savings to a cause you care about</div>
+                <button style={{background:"#ad1457",color:"#fff",border:"none",borderRadius:10,padding:"10px 18px",fontSize:13,fontWeight:600,marginTop:12,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Set up a giving plan</button>
+              </div>
+            ) : (
+              <>
+                {givingPlans.map(plan=>{
+                  const total=computeGivingTotal(savings,plan);
+                  const remaining=daysLeft(plan);
+                  return (
+                    <div key={plan.id} onClick={()=>setGivingModal(plan)} style={{background:"#fce4ec",border:"1px solid #f48fb1",borderRadius:12,padding:14,marginBottom:10,cursor:"pointer"}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                        <div style={{display:"flex",alignItems:"center",gap:10}}>
+                          <div style={{width:34,height:34,borderRadius:9,background:"#fff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:16}}>❤️</div>
+                          <div>
+                            <div style={{fontSize:13,fontWeight:600,color:"#72243e"}}>{plan.organization}</div>
+                            <div style={{fontSize:11,color:"#9c3963"}}>{remaining} day{remaining!==1?"s":""} left in this period</div>
+                          </div>
+                        </div>
+                        <div style={{fontFamily:"'Playfair Display',serif",fontSize:18,fontWeight:700,color:"#72243e"}}>${total.toFixed(2)}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+                <div onClick={()=>setGivingModal("new")} style={{background:"#fff",border:"1px dashed #d4a5b8",borderRadius:12,padding:"12px 14px",display:"flex",alignItems:"center",justifyContent:"center",gap:8,color:"#ad1457",fontSize:13,cursor:"pointer"}}>
+                  + Set up another giving plan
+                </div>
+              </>
+            )}
+          </div>
+        )}
         <div className="section" style={{paddingTop:16}}>
           <div className="section-header"><div className="section-title">Savings History</div><span className="see-all">${savings.reduce((a,s)=>a+Number(s.saved),0).toFixed(2)} total</span></div>
           {savings.length===0&&<div className="empty">No savings yet!</div>}
@@ -1655,6 +1908,7 @@ function HomeScreen({user,savings,setSavings,addSaving,handleInvestAll,invested,
       {modal==="tax"&&<TaxModal onClose={()=>setModal(null)} onSave={handleAddSaving} taxRate={taxRate} stateCode={stateCode}/>}
       {modal==="return"&&<ReturnModal onClose={()=>setModal(null)} onSave={handleAddSaving}/>}
       {modal==="returnEmail"&&<ReturnEmailModal onClose={()=>setModal(null)} onSave={handleAddSaving}/>}
+      {givingModal&&<GivingModal onClose={()=>setGivingModal(null)} plan={givingModal==="new"?null:givingModal} savings={savings} onSave={saveGivingPlan} onMarkGiven={markGivingAsGiven}/>}
       {toast&&<div className="toast">{toast}</div>}
     </>
   );
