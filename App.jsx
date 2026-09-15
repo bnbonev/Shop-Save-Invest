@@ -1603,7 +1603,7 @@ function computeGivingTotal(savings, plan) {
   const cats = plan.categories||[];
   let total = 0;
   savings.forEach(s=>{
-    if(!s.date||s.invested) return;
+    if(!s.date||s.invested||s.given) return;
     const d = parseLocalDate(s.date);
     if(d < start) return;
     const isReturn = s.type==="return";
@@ -1670,7 +1670,7 @@ function getGivingPartialClaims(savings, plans) {
     const start = parseLocalDate(plan.period_start);
     const cats = plan.categories||[];
     savings.forEach(s=>{
-      if(!s.date||s.invested) return;
+      if(!s.date||s.invested||s.given) return;
       const d = parseLocalDate(s.date);
       if(d < start) return;
       const isReturn = s.type==="return";
@@ -1741,7 +1741,7 @@ function GivingModal({onClose,plan,savings,onSave,onDelete}) {
   const catTotals = isEditing ? GIVING_CATEGORIES.map(c=>{
     let sum=0;
     savings.forEach(s=>{
-      if(!s.date||s.invested) return;
+      if(!s.date||s.invested||s.given) return;
       const d=parseLocalDate(s.date);
       if(d < parseLocalDate(plan.period_start)) return;
       const isReturn = s.type==="return";
@@ -1994,7 +1994,7 @@ function HomeScreen({user,savings,setSavings,addSaving,handleInvestAll,invested,
         <div className="section" style={{paddingTop:16}}>
           <div className="section-header"><div className="section-title">Savings History</div><span className="see-all">${savings.reduce((a,s)=>a+Number(s.saved),0).toFixed(2)} total</span></div>
           {savings.length===0&&<div className="empty">No savings yet!</div>}
-          {savings.map(item=>{ const tc=TYPE_COLORS[item.type]||TYPE_COLORS.manual; return <div className="savings-item" key={item.id}><div className="savings-icon-wrap">{storeIcon(item.store)}</div><div className="savings-info"><div className="savings-store">{item.store}</div><div className="savings-name">{item.item}</div><div style={{fontSize:10,color:"#bbb",marginTop:2}}>{fmt(item.date)}</div></div><div className="savings-right"><div className="savings-amount">+${Number(item.saved).toFixed(2)}</div><div><span className="badge" style={{background:tc.bg,color:tc.text}}>{tc.label}</span></div>{item.invested&&<div className="invested-tag">✓ Invested</div>}</div></div>; })}
+          {savings.map(item=>{ const tc=TYPE_COLORS[item.type]||TYPE_COLORS.manual; return <div className="savings-item" key={item.id}><div className="savings-icon-wrap">{storeIcon(item.store)}</div><div className="savings-info"><div className="savings-store">{item.store}</div><div className="savings-name">{item.item}</div><div style={{fontSize:10,color:"#bbb",marginTop:2}}>{fmt(item.date)}</div></div><div className="savings-right"><div className="savings-amount">+${Number(item.saved).toFixed(2)}</div><div><span className="badge" style={{background:tc.bg,color:tc.text}}>{tc.label}</span></div>{item.invested&&<div className="invested-tag">✓ Invested</div>}{item.given&&<div className="invested-tag" style={{color:"#ad1457"}}>❤️ Given</div>}</div></div>; })}
         </div>
       </div>
       {modal==="manual"&&<ManualModal onClose={()=>setModal(null)} onSave={handleAddSaving} taxRate={taxRate} stateCode={stateCode}/>}
@@ -2078,17 +2078,51 @@ export default function App() {
     await loadGivingPlans(user.id);
   };
 
-  // Deleting a plan just removes the tracking record. The savings it counted
-  // stay in Savings History exactly as logged — giving is fully separate from
-  // investing, so deleting a plan does not redirect anything into investing.
+  // Deleting a plan permanently removes the money it had claimed — it does NOT
+  // go back to "Ready to Invest" and does NOT get invested. The claimed slice
+  // of each affected saving is marked given=true (so it stops appearing
+  // anywhere as available money, WITHOUT counting toward the real Invested
+  // total, since no Alpaca trade ever happened for it). Mixed entries (e.g.
+  // Shopping + Sale Tax where only the tax portion was claimed) are split so
+  // only the claimed slice disappears; the rest stays fully available.
   const deleteGivingPlan=async(plan)=>{
+    const claims = getGivingPartialClaims(savings, [plan]);
+    const claimedIds = Object.keys(claims);
+
     if(!user?.id||isDemo){
       setGivingPlans(p=>p.filter(x=>x.id!==plan.id));
       setGivingModal(null);
+      setSavings(s=>{
+        const out=[];
+        s.forEach(x=>{
+          const claimedAmt=claims[x.id];
+          if(claimedAmt==null){ out.push(x); return; }
+          const remainingAmt=parseFloat((Number(x.saved)-claimedAmt).toFixed(2));
+          if(remainingAmt>0) out.push({...x, saved:remainingAmt}); // untouched, still available
+          // the claimed slice is simply dropped — permanently gone, not invested
+        });
+        return out;
+      });
       return;
     }
+
+    for(const id of claimedIds){
+      const entry = savings.find(x=>x.id===id);
+      if(!entry) continue;
+      const claimedAmt = parseFloat(Math.min(claims[id], Number(entry.saved)).toFixed(2));
+      const remainingAmt = parseFloat((Number(entry.saved)-claimedAmt).toFixed(2));
+      if(remainingAmt>0){
+        // Shrink the original row to just the un-claimed remainder, still available to invest.
+        await supabase.from("savings").update({saved:remainingAmt}).eq("id",id).eq("user_id",user.id);
+      } else {
+        // The whole entry was claimed — mark it given=true so it disappears
+        // everywhere, without ever counting as a real investment.
+        await supabase.from("savings").update({given:true}).eq("id",id).eq("user_id",user.id);
+      }
+    }
+
     await supabase.from("giving_plans").delete().eq("id",plan.id).eq("user_id",user.id);
-    await loadGivingPlans(user.id);
+    await loadUserData(user.id);
     setGivingModal(null);
   };
 
@@ -2110,7 +2144,7 @@ export default function App() {
   // Single source of truth for "how much is available to invest" — shared by
   // BOTH the Home screen's Invest button and the Invest tab's Invest button.
   const claimedByGiving = computeTotalClaimedByGiving(savings, givingPlans);
-  const rawUninvested = savings.filter(s=>!s.invested).reduce((a,s)=>a+Number(s.saved),0);
+  const rawUninvested = savings.filter(s=>!s.invested&&!s.given).reduce((a,s)=>a+Number(s.saved),0);
   const uninvested = parseFloat(Math.max(0, rawUninvested - claimedByGiving).toFixed(2));
 
   const onInvestClick=()=>{
