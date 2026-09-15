@@ -1880,7 +1880,7 @@ function GivingModal({onClose,plan,savings,onSave,onDelete}) {
   );
 }
 
-function HomeScreen({user,savings,setSavings,addSaving,handleInvestAll,invested,setInvested,taxRate,stateCode,isDemo,givingPlans,givingModal,setGivingModal,saveGivingPlan,deleteGivingPlan,uninvested,onInvestClick,investing}) {
+function HomeScreen({user,savings,setSavings,addSaving,handleInvestAll,invested,setInvested,taxRate,stateCode,isDemo,givingPlans,completedGivingPlans,givingModal,setGivingModal,saveGivingPlan,deleteGivingPlan,resolveGivingPlan,uninvested,onInvestClick,investing}) {
   const [modal,setModal]=useState(null);const [toast,setToast]=useState(null);
   const showToast=msg=>{setToast(msg);setTimeout(()=>setToast(null),3000);};
   const handleAddSaving=async entry=>{ await addSaving(entry); showToast(`✓ $${entry.saved.toFixed(2)} saved from ${entry.store}!`); };
@@ -1974,6 +1974,21 @@ function HomeScreen({user,savings,setSavings,addSaving,handleInvestAll,invested,
                 </div>
               </>
             )}
+            {completedGivingPlans&&completedGivingPlans.length>0&&completedGivingPlans.map(plan=>{
+              const total=computeGivingTotal(savings,plan);
+              return (
+                <div key={plan.id} style={{background:"#fff8e1",border:"1px solid #ffe082",borderRadius:12,padding:14,marginTop:10}}>
+                  <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+                    <div style={{width:34,height:34,borderRadius:9,background:"#fff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:16}}>💌</div>
+                    <div>
+                      <div style={{fontSize:13,fontWeight:600,color:"#5d4037"}}>{plan.organization}</div>
+                      <div style={{fontSize:11,color:"#8a6d1a"}}>Period ended — mail a check or pay ${total.toFixed(2)} online</div>
+                    </div>
+                  </div>
+                  <button onClick={()=>resolveGivingPlan(plan)} style={{width:"100%",background:"#1a1a2e",color:"#fff",border:"none",borderRadius:9,padding:"9px",fontSize:12.5,fontWeight:600,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>✓ I sent it</button>
+                </div>
+              );
+            })}
           </div>
         )}
         <div className="section" style={{paddingTop:16}}>
@@ -2007,20 +2022,38 @@ export default function App() {
   const [loadingData,setLoadingData]=useState(false);
   const [isDemo,setIsDemo]=useState(false);
   const [givingPlans,setGivingPlans]=useState([]);
+  const [completedGivingPlans,setCompletedGivingPlans]=useState([]);
   const [givingModal,setGivingModal]=useState(null); // null | "new" | plan object
   const [investing,setInvesting]=useState(false);
 
   const loadGivingPlans=async(userId)=>{
     if(!userId||isDemo) return;
     try {
-      const {data,error}=await supabase.from("giving_plans").select("*").eq("user_id",userId).eq("status","active").order("created_at",{ascending:false});
+      const {data,error}=await supabase.from("giving_plans").select("*").eq("user_id",userId).in("status",["active","completed"]).order("created_at",{ascending:false});
       if(!error&&data){
-        const stillActive = data.filter(p=>daysLeft(p)>0);
-        const expired = data.filter(p=>daysLeft(p)<=0);
-        if(expired.length>0){
-          await Promise.all(expired.map(p=>supabase.from("giving_plans").update({status:"completed"}).eq("id",p.id).eq("user_id",userId)));
+        const stillActive = data.filter(p=>p.status==="active"&&daysLeft(p)>0);
+        const newlyExpired = data.filter(p=>p.status==="active"&&daysLeft(p)<=0);
+        const alreadyCompleted = data.filter(p=>p.status==="completed");
+
+        if(newlyExpired.length>0){
+          await Promise.all(newlyExpired.map(p=>supabase.from("giving_plans").update({status:"completed",completed_at:new Date().toISOString()}).eq("id",p.id).eq("user_id",userId)));
         }
+
+        // Completed plans older than 3 days are past their grace period — remove them for good.
+        const now=new Date();
+        const stillInGracePeriod=[]; const tooOld=[];
+        alreadyCompleted.forEach(p=>{
+          const completedAt = p.completed_at?new Date(p.completed_at):now;
+          const daysSince = (now-completedAt)/(1000*60*60*24);
+          if(daysSince>3) tooOld.push(p); else stillInGracePeriod.push(p);
+        });
+        if(tooOld.length>0){
+          await Promise.all(tooOld.map(p=>supabase.from("giving_plans").delete().eq("id",p.id).eq("user_id",userId)));
+        }
+
+        const nowCompleted = newlyExpired.map(p=>({...p,status:"completed",completed_at:new Date().toISOString()}));
         setGivingPlans(stillActive);
+        setCompletedGivingPlans([...stillInGracePeriod,...nowCompleted]);
       }
     } catch(e){ console.error("Error loading giving plans:",e); }
   };
@@ -2045,6 +2078,9 @@ export default function App() {
     await loadGivingPlans(user.id);
   };
 
+  // Deleting an ACTIVE plan is a deliberate "I'm canceling this" action —
+  // unlike a plan reaching the end of its period naturally, this DOES release
+  // the claimed money back for investing.
   const deleteGivingPlan=async(plan)=>{
     const releasedAmount = computeGivingTotal(savings, plan);
     if(!user?.id||isDemo){
@@ -2058,6 +2094,21 @@ export default function App() {
     setGivingModal(null);
     if(releasedAmount>0) await handleInvestAll(releasedAmount);
     return releasedAmount;
+  };
+
+  // For a COMPLETED plan sitting in its 3-day grace period: simply acknowledge
+  // it and remove the record. This money was already earmarked for giving the
+  // moment it was logged — it does not get offered back for investing here.
+  // (Investing released money only happens if an ACTIVE plan is explicitly deleted.)
+  const resolveGivingPlan=async(plan)=>{
+    if(!user?.id||isDemo){
+      setCompletedGivingPlans(p=>p.filter(x=>x.id!==plan.id));
+      setGivingModal(null);
+      return;
+    }
+    await supabase.from("giving_plans").delete().eq("id",plan.id).eq("user_id",user.id);
+    await loadGivingPlans(user.id);
+    setGivingModal(null);
   };
 
   // Single source of truth for "how much is available to invest" — shared by
@@ -2178,10 +2229,6 @@ export default function App() {
   const handleInvestAll=async(amount, partialClaims={})=>{
     const profile=RISK_PROFILES.find(p=>p.id===riskId)||RISK_PROFILES[2];
     const claimedIds = Object.keys(partialClaims);
-    console.log("[INVEST DEBUG] amount to invest:", amount);
-    console.log("[INVEST DEBUG] partialClaims:", partialClaims);
-    console.log("[INVEST DEBUG] claimedIds:", claimedIds);
-    console.log("[INVEST DEBUG] current savings snapshot:", savings.map(s=>({id:s.id,saved:s.saved,invested:s.invested,type:s.type,shoppingSavings:s.shoppingSavings,saleTax:s.saleTax})));
 
     if(isDemo){
       // Demo mode never touches Alpaca or Supabase — purely simulated
@@ -2209,9 +2256,7 @@ export default function App() {
       // Entries with nothing claimed against them: invest in full, as before.
       let query = supabase.from("savings").update({invested:true}).eq("user_id",user.id).eq("invested",false);
       if(claimedIds.length>0) query = query.not("id","in",`(${claimedIds.join(",")})`);
-      console.log("[INVEST DEBUG] Bulk-invest filter — excluding IDs:", claimedIds);
-      const bulkResult = await query;
-      console.log("[INVEST DEBUG] Bulk update result:", bulkResult);
+      await query;
 
       // Entries partially claimed: shrink the original row to just the claimed
       // slice (left behind, still uninvested), and insert a new already-invested
@@ -2221,16 +2266,13 @@ export default function App() {
         if(!entry) continue;
         const claimedAmt = parseFloat(Math.min(partialClaims[id], Number(entry.saved)).toFixed(2));
         const investedAmt = parseFloat((Number(entry.saved)-claimedAmt).toFixed(2));
-        console.log(`[INVEST DEBUG] Splitting entry ${id}: original=${entry.saved}, claimedAmt=${claimedAmt}, investedAmt=${investedAmt}`);
         if(investedAmt>0){
-          const insertResult = await supabase.from("savings").insert([{
+          await supabase.from("savings").insert([{
             user_id:user.id, store:entry.store, item:entry.item, type:entry.type,
             saved:investedAmt, date:entry.date, invested:true,
           }]);
-          console.log(`[INVEST DEBUG] Inserted new invested row for ${id}:`, insertResult);
         }
-        const shrinkResult = await supabase.from("savings").update({saved:claimedAmt}).eq("id",id).eq("user_id",user.id);
-        console.log(`[INVEST DEBUG] Shrunk original row ${id} to ${claimedAmt}:`, shrinkResult);
+        await supabase.from("savings").update({saved:claimedAmt}).eq("id",id).eq("user_id",user.id);
       }
 
       if(cashReserve>0){
@@ -2300,7 +2342,7 @@ export default function App() {
     <>
       <style>{S}</style>
       <div className="app">
-        {tab==="home"&&<HomeScreen user={user} savings={savings} setSavings={setSavings} addSaving={addSaving} handleInvestAll={handleInvestAll} invested={invested} setInvested={setInvested} taxRate={taxRate} stateCode={stateCode} isDemo={isDemo} givingPlans={givingPlans} givingModal={givingModal} setGivingModal={setGivingModal} saveGivingPlan={saveGivingPlan} deleteGivingPlan={deleteGivingPlan} uninvested={uninvested} onInvestClick={onInvestClick} investing={investing}/>}
+        {tab==="home"&&<HomeScreen user={user} savings={savings} setSavings={setSavings} addSaving={addSaving} handleInvestAll={handleInvestAll} invested={invested} setInvested={setInvested} taxRate={taxRate} stateCode={stateCode} isDemo={isDemo} givingPlans={givingPlans} completedGivingPlans={completedGivingPlans} givingModal={givingModal} setGivingModal={setGivingModal} saveGivingPlan={saveGivingPlan} deleteGivingPlan={deleteGivingPlan} resolveGivingPlan={resolveGivingPlan} uninvested={uninvested} onInvestClick={onInvestClick} investing={investing}/>}
         {tab==="portfolio"&&<PortfolioScreen savings={savings} invested={invested}/>}
         {tab==="invest"&&<InvestScreen invested={invested} riskId={riskId} uninvested={uninvested} fixedReserve={fixedReserve} onSetRisk={updateRiskId} isDemo={isDemo} getDemoPositions={getDemoPositions} onInvestClick={onInvestClick} investing={investing}/>}
         {tab==="settings"&&<SettingsScreen user={user} onLogout={handleLogout} isDemo={isDemo}/>}
