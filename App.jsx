@@ -2078,22 +2078,18 @@ export default function App() {
     await loadGivingPlans(user.id);
   };
 
-  // Deleting an ACTIVE plan is a deliberate "I'm canceling this" action —
-  // unlike a plan reaching the end of its period naturally, this DOES release
-  // the claimed money back for investing.
+  // Deleting a plan just removes the tracking record. The savings it counted
+  // stay in Savings History exactly as logged — giving is fully separate from
+  // investing, so deleting a plan does not redirect anything into investing.
   const deleteGivingPlan=async(plan)=>{
-    const releasedAmount = computeGivingTotal(savings, plan);
     if(!user?.id||isDemo){
       setGivingPlans(p=>p.filter(x=>x.id!==plan.id));
       setGivingModal(null);
-      if(releasedAmount>0) await handleInvestAll(releasedAmount);
-      return releasedAmount;
+      return;
     }
     await supabase.from("giving_plans").delete().eq("id",plan.id).eq("user_id",user.id);
     await loadGivingPlans(user.id);
     setGivingModal(null);
-    if(releasedAmount>0) await handleInvestAll(releasedAmount);
-    return releasedAmount;
   };
 
   // For a COMPLETED plan sitting in its 3-day grace period: simply acknowledge
