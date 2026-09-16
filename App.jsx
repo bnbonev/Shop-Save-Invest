@@ -2080,11 +2080,12 @@ export default function App() {
 
   // Deleting a plan permanently removes the money it had claimed — it does NOT
   // go back to "Ready to Invest" and does NOT get invested. The claimed slice
-  // of each affected saving is marked given=true (so it stops appearing
-  // anywhere as available money, WITHOUT counting toward the real Invested
-  // total, since no Alpaca trade ever happened for it). Mixed entries (e.g.
-  // Shopping + Sale Tax where only the tax portion was claimed) are split so
-  // only the claimed slice disappears; the rest stays fully available.
+  // of each affected saving is split into its own row and marked given=true
+  // (so it shows a "❤️ Given" tag in history, stops appearing anywhere as
+  // available money, and never counts toward the real Invested total, since
+  // no Alpaca trade ever happened for it). Mixed entries (e.g. Shopping + Sale
+  // Tax where only the tax portion was claimed) are split so only the claimed
+  // slice becomes a "given" row; the remainder stays fully available.
   const deleteGivingPlan=async(plan)=>{
     const claims = getGivingPartialClaims(savings, [plan]);
     const claimedIds = Object.keys(claims);
@@ -2099,7 +2100,7 @@ export default function App() {
           if(claimedAmt==null){ out.push(x); return; }
           const remainingAmt=parseFloat((Number(x.saved)-claimedAmt).toFixed(2));
           if(remainingAmt>0) out.push({...x, saved:remainingAmt}); // untouched, still available
-          // the claimed slice is simply dropped — permanently gone, not invested
+          out.push({...x, id:x.id+"_given", saved:parseFloat(claimedAmt.toFixed(2)), given:true}); // the given slice, tagged
         });
         return out;
       });
@@ -2112,11 +2113,15 @@ export default function App() {
       const claimedAmt = parseFloat(Math.min(claims[id], Number(entry.saved)).toFixed(2));
       const remainingAmt = parseFloat((Number(entry.saved)-claimedAmt).toFixed(2));
       if(remainingAmt>0){
-        // Shrink the original row to just the un-claimed remainder, still available to invest.
+        // Shrink the original row to just the un-claimed remainder, still available to invest,
+        // and insert a NEW row for the given slice so it's visible with its own "❤️ Given" tag.
         await supabase.from("savings").update({saved:remainingAmt}).eq("id",id).eq("user_id",user.id);
+        await supabase.from("savings").insert([{
+          user_id:user.id, store:entry.store, item:entry.item, type:entry.type,
+          saved:claimedAmt, date:entry.date, given:true,
+        }]);
       } else {
-        // The whole entry was claimed — mark it given=true so it disappears
-        // everywhere, without ever counting as a real investment.
+        // The whole entry was claimed — mark it given=true directly, no split needed.
         await supabase.from("savings").update({given:true}).eq("id",id).eq("user_id",user.id);
       }
     }
