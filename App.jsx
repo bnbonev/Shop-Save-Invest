@@ -127,7 +127,7 @@ function storeIcon(s) {
   if(x.includes("nordstrom")||x.includes("zara")||x.includes("gap")||x.includes("nike")) return "👕";
   return "🛍️";
 }
-function fmt(d) { return new Date(d).toLocaleDateString("en-US",{month:"short",day:"numeric"}); }
+function fmt(d) { return parseLocalDate(d).toLocaleDateString("en-US",{month:"short",day:"numeric"}); }
 
 // ── Built-in Receipt Parser ───────────────────────────────────────
 function parseReceipt(text) {
@@ -1152,7 +1152,7 @@ function PortfolioScreen({savings,invested}) {
   const monthlyMap={};
   savings.forEach(s=>{
     if(!s.date) return;
-    const d=new Date(s.date);
+    const d=parseLocalDate(s.date);
     const key=d.toLocaleDateString("en-US",{month:"short",year:"2-digit"});
     if(!monthlyMap[key]) monthlyMap[key]={month:key,shopping:0,saleTax:0,returns:0};
     if(s.type==="return") {
@@ -1178,7 +1178,7 @@ function PortfolioScreen({savings,invested}) {
   const seenMonths=new Set();
   sortedSavings.forEach(s=>{
     cumulative+=s.saved;
-    const d=new Date(s.date);
+    const d=parseLocalDate(s.date);
     const key=d.toLocaleDateString("en-US",{month:"short"});
     if(!seenMonths.has(key)){
       seenMonths.add(key);
@@ -1994,7 +1994,7 @@ function HomeScreen({user,savings,setSavings,addSaving,handleInvestAll,invested,
         <div className="section" style={{paddingTop:16}}>
           <div className="section-header"><div className="section-title">Savings History</div><span className="see-all">${savings.reduce((a,s)=>a+Number(s.saved),0).toFixed(2)} total</span></div>
           {savings.length===0&&<div className="empty">No savings yet!</div>}
-          {savings.map(item=>{ const tc=TYPE_COLORS[item.type]||TYPE_COLORS.manual; return <div className="savings-item" key={item.id}><div className="savings-icon-wrap">{storeIcon(item.store)}</div><div className="savings-info"><div className="savings-store">{item.store}</div><div className="savings-name">{item.item}</div><div style={{fontSize:10,color:"#bbb",marginTop:2}}>{fmt(item.date)}</div></div><div className="savings-right"><div className="savings-amount">+${Number(item.saved).toFixed(2)}</div><div><span className="badge" style={{background:tc.bg,color:tc.text}}>{tc.label}</span></div>{item.invested&&<div className="invested-tag">✓ Invested</div>}{item.given&&<div className="invested-tag" style={{color:"#ad1457"}}>❤️ Given</div>}</div></div>; })}
+          {savings.map(item=>{ const tc=TYPE_COLORS[item.type]||TYPE_COLORS.manual; return <div className="savings-item" key={item.id}><div className="savings-icon-wrap">{storeIcon(item.store)}</div><div className="savings-info"><div className="savings-store">{item.store}</div><div className="savings-name">{item.item}</div><div style={{fontSize:10,color:"#bbb",marginTop:2}}>{fmt(item.date)}</div></div><div className="savings-right"><div className="savings-amount">+${Number(item.saved).toFixed(2)}</div><div><span className="badge" style={{background:tc.bg,color:tc.text}}>{tc.label}</span></div>{item.given?<div className="invested-tag" style={{color:"#ad1457"}}>❤️ Given</div>:item.invested&&<div className="invested-tag">✓ Invested</div>}</div></div>; })}
         </div>
       </div>
       {modal==="manual"&&<ManualModal onClose={()=>setModal(null)} onSave={handleAddSaving} taxRate={taxRate} stateCode={stateCode}/>}
@@ -2100,7 +2100,7 @@ export default function App() {
           if(claimedAmt==null){ out.push(x); return; }
           const remainingAmt=parseFloat((Number(x.saved)-claimedAmt).toFixed(2));
           if(remainingAmt>0) out.push({...x, saved:remainingAmt}); // untouched, still available
-          out.push({...x, id:x.id+"_given", saved:parseFloat(claimedAmt.toFixed(2)), given:true}); // the given slice, tagged
+          out.push({...x, id:x.id+"_given", saved:parseFloat(claimedAmt.toFixed(2)), given:true, invested:false}); // the given slice, tagged
         });
         return out;
       });
@@ -2115,14 +2115,16 @@ export default function App() {
       if(remainingAmt>0){
         // Shrink the original row to just the un-claimed remainder, still available to invest,
         // and insert a NEW row for the given slice so it's visible with its own "❤️ Given" tag.
+        // given and invested are mutually exclusive — this new row is explicitly not invested.
         await supabase.from("savings").update({saved:remainingAmt}).eq("id",id).eq("user_id",user.id);
         await supabase.from("savings").insert([{
           user_id:user.id, store:entry.store, item:entry.item, type:entry.type,
-          saved:claimedAmt, date:entry.date, given:true,
+          saved:claimedAmt, date:entry.date, given:true, invested:false,
         }]);
       } else {
-        // The whole entry was claimed — mark it given=true directly, no split needed.
-        await supabase.from("savings").update({given:true}).eq("id",id).eq("user_id",user.id);
+        // The whole entry was claimed — mark it given=true and explicitly clear
+        // invested=false, since a single entry should never show both tags.
+        await supabase.from("savings").update({given:true,invested:false}).eq("id",id).eq("user_id",user.id);
       }
     }
 
