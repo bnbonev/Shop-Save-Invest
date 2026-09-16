@@ -2087,8 +2087,11 @@ export default function App() {
   // Tax where only the tax portion was claimed) are split so only the claimed
   // slice becomes a "given" row; the remainder stays fully available.
   const deleteGivingPlan=async(plan)=>{
+    console.log("[DELETE DEBUG] deleteGivingPlan called with plan:", plan);
     const claims = getGivingPartialClaims(savings, [plan]);
     const claimedIds = Object.keys(claims);
+    console.log("[DELETE DEBUG] claims:", claims);
+    console.log("[DELETE DEBUG] claimedIds:", claimedIds);
 
     if(!user?.id||isDemo){
       setGivingPlans(p=>p.filter(x=>x.id!==plan.id));
@@ -2112,6 +2115,7 @@ export default function App() {
       if(!entry) continue;
       const claimedAmt = parseFloat(Math.min(claims[id], Number(entry.saved)).toFixed(2));
       const remainingAmt = parseFloat((Number(entry.saved)-claimedAmt).toFixed(2));
+      console.log(`[DELETE DEBUG] Entry ${id}: original=${entry.saved}, claimedAmt=${claimedAmt}, remainingAmt=${remainingAmt}`);
       if(remainingAmt>0){
         // Shrink the original row to just the un-claimed remainder, still available to invest,
         // and insert a NEW row for the given slice so it's visible with its own "❤️ Given" tag.
