@@ -1667,6 +1667,7 @@ function getGivingPartialClaims(savings, plans) {
   const claims = {}; // entryId -> total dollar amount claimed across all plans
 
   plans.forEach(plan=>{
+    if(!plan.period_start) return;
     const start = parseLocalDate(plan.period_start);
     const cats = plan.categories||[];
     savings.forEach(s=>{
@@ -1710,7 +1711,9 @@ function getGivingPartialClaims(savings, plans) {
 // the classic bug where new Date("2026-09-12") anchors to UTC and can read
 // as the previous day for anyone behind UTC (all of the Americas).
 function parseLocalDate(dateStr) {
+  if(!dateStr||typeof dateStr!=="string") return new Date(0); // epoch — treated as "always in the past", safe fallback
   const [y,m,d] = dateStr.split("-").map(Number);
+  if(!y||!m||!d) return new Date(0);
   return new Date(y, m-1, d);
 }
 
@@ -1994,7 +1997,11 @@ function HomeScreen({user,savings,setSavings,addSaving,handleInvestAll,invested,
         <div className="section" style={{paddingTop:16}}>
           <div className="section-header"><div className="section-title">Savings History</div><span className="see-all">${savings.reduce((a,s)=>a+Number(s.saved),0).toFixed(2)} total</span></div>
           {savings.length===0&&<div className="empty">No savings yet!</div>}
-          {(()=>{ const activeClaims=getGivingPartialClaims(savings,givingPlans); return savings.map(item=>{ const tc=TYPE_COLORS[item.type]||TYPE_COLORS.manual; const isPledged=!item.given&&!item.invested&&activeClaims[item.id]>0; return <div className="savings-item" key={item.id}><div className="savings-icon-wrap">{storeIcon(item.store)}</div><div className="savings-info"><div className="savings-store">{item.store}</div><div className="savings-name">{item.item}</div><div style={{fontSize:10,color:"#bbb",marginTop:2}}>{fmt(item.date)}</div></div><div className="savings-right"><div className="savings-amount">+${Number(item.saved).toFixed(2)}</div><div><span className="badge" style={{background:tc.bg,color:tc.text}}>{tc.label}</span></div>{item.given?<div className="invested-tag" style={{color:"#ad1457"}}>❤️ Given</div>:item.invested?<div className="invested-tag">✓ Invested</div>:isPledged&&<div className="invested-tag" style={{color:"#ad1457"}}>❤️ Pledged</div>}</div></div>; }); })()}
+          {(()=>{
+            let activeClaims={};
+            try { activeClaims=getGivingPartialClaims(savings,givingPlans); } catch(e){ console.error("Pledge tag calculation failed, showing history without it:",e); }
+            return savings.map(item=>{ const tc=TYPE_COLORS[item.type]||TYPE_COLORS.manual; const isPledged=!item.given&&!item.invested&&activeClaims[item.id]>0; return <div className="savings-item" key={item.id}><div className="savings-icon-wrap">{storeIcon(item.store)}</div><div className="savings-info"><div className="savings-store">{item.store}</div><div className="savings-name">{item.item}</div><div style={{fontSize:10,color:"#bbb",marginTop:2}}>{fmt(item.date)}</div></div><div className="savings-right"><div className="savings-amount">+${Number(item.saved).toFixed(2)}</div><div><span className="badge" style={{background:tc.bg,color:tc.text}}>{tc.label}</span></div>{item.given?<div className="invested-tag" style={{color:"#ad1457"}}>❤️ Given</div>:item.invested?<div className="invested-tag">✓ Invested</div>:isPledged&&<div className="invested-tag" style={{color:"#ad1457"}}>❤️ Pledged</div>}</div></div>; });
+          })()}
         </div>
       </div>
       {modal==="manual"&&<ManualModal onClose={()=>setModal(null)} onSave={handleAddSaving} taxRate={taxRate} stateCode={stateCode}/>}
